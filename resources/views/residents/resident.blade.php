@@ -1,0 +1,214 @@
+@extends('layout.default')
+
+@section('content')
+
+
+
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card border custom-b">
+                    <div class="card-header custom-bg">
+                        <span class="text-white text-center">
+                            <h2> Crear Residente</h2>
+                        </span>
+                    </div>
+
+
+                    <!--begin::Body-->
+                    <div class="card-body">
+                        <form class="form" method="POST" action="{{ route('save.resident') }}" id="residentsform">
+
+                            @csrf
+                            <div class="row">
+                                <label class="col-xl-3"></label>
+                                <div class="col-lg-9 col-xl-6">
+                                    <h5 class="font-weight-bold mb-6">Datos del residente</h5>
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <label class="col-xl-3 col-lg-3 col-form-label">Codigo</label>
+                                <div class="col-lg-9 col-xl-9">
+                                    <input
+                                        class="form-control form-control-sm form-control-solid @error('Codigo') is-invalid @enderror"
+                                        value="{{ old('Codigo') }}" type="text" name="Codigo" id="Codigo" />
+                                    @error('Codigo')
+                                        <div class="alert text-danger">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+                            <div class="form-group row">
+                                <label class="col-xl-3 col-lg-3 col-form-label">Primer Nombre</label>
+                                <div class="col-lg-9 col-xl-9">
+                                    <input
+                                        class="form-control form-control-sm form-control-solid @error('Nombres') is-invalid @enderror"
+                                        value="{{ old('Nombres') }}" type="text" name="Nombres" id="Nombres" />
+                                    @error('Nombres')
+                                        <div class="alert text-danger">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+                            <div class="form-group row">
+                                <label class="col-xl-3 col-lg-3 col-form-label">Segundo Nombre</label>
+                                <div class="col-lg-9 col-xl-9">
+                                    <input
+                                        class="form-control form-control-sm form-control-solid @error('Nombres2') is-invalid @enderror"
+                                        value="{{ old('Nombres2') }}" type="text" name="Nombres2" id="Nombres2" />
+                                    @error('Nombres2')
+                                        <div class="alert text-danger">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+
+                            <div class="form-group row">
+                                <label class="col-xl-3 col-lg-3 col-form-label">Apellido</label>
+                                <div class="col-lg-9 col-xl-9">
+                                    <input
+                                        class="form-control form-control-sm form-control-solid @error('Apellidos') is-invalid @enderror"
+                                        value='{{ old('Apellidos') }}' type="text" name="Apellidos" id="Apellidos" />
+                                    @error('Apellidos')
+                                        <div class="alert text-danger">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+                            <div class="form-group row">
+                                <label class="col-xl-3 col-lg-3 col-form-label">Segundo Apellido</label>
+                                <div class="col-lg-9 col-xl-9">
+                                    <input
+                                        class="form-control form-control-sm form-control-solid @error('Apellidos2') is-invalid @enderror"
+                                        value='{{ old('Apellidos2') }}' type="text" name="Apellidos2" id="Apellidos2" />
+                                    @error('Apellidos2')
+                                        <div class="alert text-danger">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <label class="col-xl-3"></label>
+                                <div class="col-lg-9 col-xl-9">
+                                    <h5 class="font-weight-bold mt-10 mb-6">Información de contacto</h5>
+                                </div>
+                            </div>
+                            <div class="form-group row" @if ($config->enable_tel<>1)hidden @endif>
+                                <label class="col-xl-3 col-lg-3 col-form-label">Teléfono</label>
+                                <div @if ($config->enable_tel == 0) hidden @endif class="col-lg-9 col-xl-9">
+                                    <div class="input-group input-group-sm input-group-solid bg-primary">
+                                        <div class="input-group-prepend">
+                                            <span class="input-group-text ">
+                                                <i class="la la-phone text-white"></i>
+                                            </span>
+                                        </div>
+                                        <input type="text"
+                                            class="bg-light form-control form-control-sm @error('Telefono') is-invalid @enderror"
+                                            value="{{ old('Telefono') }}" name="Telefono" id="Telefono" />
+                                    </div>
+                                    @error('Telefono')
+                                        <div class="alert text-danger">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+                            <div class="form-group row "@if ($config->enable_accesotel<>1)hidden @endif>
+                                    <label class="col-xl-3 col-lg-3 col-form-label">Acceso Teléfonico</label>
+                                <div class="col-lg-9 col-xl-9">
+                                    <div class="input-group input-group-sm input-group-solid bg-primary">
+                                        <div class="input-group-prepend">
+                                            <span class="input-group-text ">
+                                                <i class="la la-phone text-white"></i>
+                                            </span>
+                                        </div>
+                                        <input type="text"
+                                            class="bg-light form-control form-control-sm @error('accesotel') is-invalid @enderror"
+                                            name="accesotel" id="accesotel" value="{{ old('accesotel') }}" />
+                                    </div>
+                                    @error('accesotel')
+                                        <div class="alert text-danger">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+                            <div class="form-group row">
+                                <label class="col-xl-3 col-lg-3 col-form-label">Dirección</label>
+                                <div class="col-lg-9 col-xl-9">
+                                    <div class="input-group input-group-sm input-group-solid bg-primary">
+                                        <div class="input-group-prepend ">
+                                            <span class="input-group-text ">
+                                                <i class="fas fa-house-user text-white"></i>
+                                            </span>
+                                        </div>
+                                        <input type="text"
+                                            class=" bg-light form-control form-control-sm  @error('Direccion') is-invalid @enderror"
+                                            value="{{ old('Direccion') }}" name="Direccion" id="Direccion" />
+                                    </div>
+                                    @error('Direccion')
+                                        <div class="alert text-danger text-xs">{{ __($message) }}</div>
+                                    @enderror
+                                </div>
+
+                            </div>
+
+
+                            <div class="form-group row">
+                                <label class="col-xl-3 col-lg-3 col-form-label">Tipo</label>
+                                <div class="col-lg-9 col-xl-9">
+                                    <input data-switch="true" type="checkbox" checked data-on-text="Residente"
+                                        data-handle-width="100" data-off-text="Inquilino" data-on-color="primary"
+                                        data-off-color="primary" name="tipo" id="tipo"/>
+                                </div>
+                            </div>
+
+                            <div class="form-group row mb-0 text-right">
+                                <div class="col-md-12 ">
+                                    <button type="submit"
+                                        class="btn btn-sm btn-light-primary font-weight-bolder text-uppercase mr-2">
+                                        Guardar</button>
+                                    <a href="javascript: history.go(-1)"
+                                        class="btn btn-sm btn-light-danger font-weight-bolder text-uppercase">Cancelar</a>
+                                </div>
+                            </div>
+
+                    </div>
+
+
+
+
+                    <!--end::Form-->
+                    </form>
+                </div>
+                <!--end::Body-->
+
+
+            </div>
+
+        </div>
+    </div>
+
+
+@endsection
+
+@section('scripts')
+    <script>
+        var KTBootstrapSwitch = function() {
+
+            // Private functions
+            var demos = function() {
+                // minimum setup
+                $('[data-switch=true]').bootstrapSwitch();
+            };
+
+            return {
+                // public functions
+                init: function() {
+                    demos();
+                },
+            };
+        }();
+
+        jQuery(document).ready(function() {
+            KTBootstrapSwitch.init();
+        });
+    </script>
+@endsection
