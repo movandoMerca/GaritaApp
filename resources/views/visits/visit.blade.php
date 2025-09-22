@@ -263,103 +263,132 @@
     </script>
 
     <script>
-        const camaraLicencia = '{!! Auth()->user()->camara_id_licencia !!}';
-        const camaraPlaca = '{!! Auth()->user()->camara_id_placa !!}';
-        const camaraVisitante = '{!! Auth()->user()->camara_id_visitante !!}';
-
-        const constraints1 = {
-            video: {
-                deviceId: camaraLicencia
-            }
-        };
-        const constraints2 = {
-            video: {
-                deviceId: camaraPlaca
-            }
-        };
-        const constraints3 = {
-            video: {
-                deviceId: camaraVisitante
-            }
+        (async () => {
+        // IDs guardados en el usuario (pueden ser deviceId antiguos o labels)
+        const wanted = {
+            licencia:  '{!! Auth()->user()->camara_id_licencia !!}',
+            placa:     '{!! Auth()->user()->camara_id_placa !!}',
+            visitante: '{!! Auth()->user()->camara_id_visitante !!}',
         };
 
-        const video1 = document.getElementById('video1');
-        const video2 = document.getElementById('video2');
-        const video3 = document.getElementById('video3');
+        const els = {
+            licencia:  { video: document.getElementById('video1'), canvas: document.getElementById('canvas1') },
+            placa:     { video: document.getElementById('video2'), canvas: document.getElementById('canvas2') },
+            visitante: { video: document.getElementById('video3'), canvas: document.getElementById('canvas3') },
+        };
 
-        const canvas1 = document.getElementById('canvas1');
-        const canvas2 = document.getElementById('canvas2');
-        const canvas3 = document.getElementById('canvas3');
+        // 1) Pide permiso una vez para poder leer labels y deviceId reales
+        try { await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+        catch (e) {
+            console.error('No se pudo obtener permiso de cámara:', e);
+            Swal.fire('Permiso denegado', 'Autoriza el uso de la cámara para seleccionar los dispositivos correctos.', 'error');
+            return;
+        }
 
+        // 2) Enumera cámaras y arma mapas por deviceId y por label
+        const devices = (await navigator.mediaDevices.enumerateDevices())
+                        .filter(d => d.kind === 'videoinput');
+
+        const byId    = Object.fromEntries(devices.map(d => [d.deviceId, d]));
+        const byLabel = Object.fromEntries(devices.map(d => [d.label, d]));
+
+        // Utilidad: resuelve un “id guardado” a un deviceId válido
+        const resolveDeviceId = (saved) => {
+            if (!saved) return null;
+            // a) Coincidencia exacta por deviceId
+            if (byId[saved]) return saved;
+            // b) Coincidencia por label exacta
+            if (byLabel[saved]) return byLabel[saved].deviceId;
+            // c) Coincidencia por label parcial (por si guardaste parte del nombre)
+            const partial = devices.find(d => d.label && d.label.toLowerCase().includes(String(saved).toLowerCase()));
+            return partial ? partial.deviceId : null;
+        };
+
+        const pickOrFallback = (role, usedSet) => {
+            const resolved = resolveDeviceId(wanted[role]);
+            if (resolved && !usedSet.has(resolved)) return resolved;
+            // Fallback: escoge la primera cámara que no esté usada aún
+            const firstFree = devices.find(d => !usedSet.has(d.deviceId));
+            return firstFree ? firstFree.deviceId : null;
+        };
+
+        const used = new Set();
+        const mapRoleToDeviceId = {
+            licencia:  pickOrFallback('licencia', used),
+            placa:     pickOrFallback('placa', used),
+            visitante: pickOrFallback('visitante', used),
+        };
+        Object.values(mapRoleToDeviceId).forEach(id => id && used.add(id));
+
+        // 3) Abre cada stream con constraint EXACTO
+        const streams = {};
+
+        const openStream = async (role) => {
+            const deviceId = mapRoleToDeviceId[role];
+            const el = els[role].video;
+            if (!deviceId) {
+            console.warn(`No hay cámara disponible para ${role}`);
+            Swal.fire('Cámara no encontrada', `No se encontró una cámara para ${role}.`, 'warning');
+            return;
+            }
+            // ¡Usa exact!
+            const constraints = { video: { deviceId: { exact: deviceId } }, audio: false };
+            try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            // Detén stream previo si reabrimos
+            if (streams[role]) streams[role].getTracks().forEach(t => t.stop());
+            streams[role] = stream;
+            el.srcObject = stream;
+            await el.play();
+            console.log(`[${role}] usando:`, devices.find(d => d.deviceId === deviceId)?.label || deviceId);
+            } catch (err) {
+            console.error(`Error al abrir cámara de ${role}:`, err);
+            Swal.fire('Error de cámara', `No se pudo abrir la cámara de ${role}.`, 'error');
+            }
+        };
+
+        await Promise.all([openStream('licencia'), openStream('placa'), openStream('visitante')]);
+
+        // 4) Captura de fotos (igual que tu lógica, pero más segura)
         const captureBtn = document.getElementById('capture-btn');
-
-        var photo1, photo2, photo3;
-
-        navigator.mediaDevices.getUserMedia(constraints1)
-            .then((mediaStream) => {
-                video1.srcObject = mediaStream;
-            })
-            .catch((err) => {
-                console.log(`Error al acceder a la cámara web 1: ${err}`);
-            });
-
-        navigator.mediaDevices.getUserMedia(constraints2)
-            .then((mediaStream) => {
-                video2.srcObject = mediaStream;
-            })
-            .catch((err) => {
-                console.log(`Error al acceder a la cámara web 2: ${err}`);
-            });
-
-        navigator.mediaDevices.getUserMedia(constraints3)
-            .then((mediaStream) => {
-                video3.srcObject = mediaStream;
-            })
-            .catch((err) => {
-                console.log(`Error al acceder a la cámara web 3: ${err}`);
-            });
-
+        window.photo1 = window.photo2 = window.photo3 = undefined;
 
         captureBtn.addEventListener('click', (e) => {
-
             e.preventDefault();
 
-            // Tomar foto de la cámara 1
-            const ctx1 = canvas1.getContext('2d');
-            ctx1.drawImage(video1, 0, 0, canvas1.width, canvas1.height);
-            photo1 = canvas1.toDataURL('image/png');
+            const snap = (role, idx) => {
+            const video  = els[role].video;
+            const canvas = els[role].canvas;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85); // JPEG para reducir peso
+            document.getElementById(`video${idx}`).hidden  = true;
+            document.getElementById(`canvas${idx}`).hidden = false;
+            return dataUrl;
+            };
 
-            // Tomar foto de la cámara 2
-            const ctx2 = canvas2.getContext('2d');
-            ctx2.drawImage(video2, 0, 0, canvas2.width, canvas2.height);
-            photo2 = canvas2.toDataURL('image/png');
-
-            // Tomar foto de la cámara 3
-            const ctx3 = canvas3.getContext('2d');
-            ctx3.drawImage(video3, 0, 0, canvas3.width, canvas3.height);
-            photo3 = canvas3.toDataURL('image/png');
-
-            $('#canvas1').removeAttr('hidden');
-            $('#canvas2').removeAttr('hidden');
-            $('#canvas3').removeAttr('hidden');
-
-            $('#video1').attr('hidden', true);
-            $('#video2').attr('hidden', true);
-            $('#video3').attr('hidden', true);
-
-            console.log(photo1);
-
-            // Enviar las fotos a un servidor (ejemplo)
-            // const xhr = new XMLHttpRequest();
-            //     xhr.open('POST', '/guardar-fotos');
-            //     xhr.setRequestHeader('Content-Type', 'application/json');
-            //     xhr.send(JSON.stringify({
-            //     photo1,
-            //     photo2,
-            //     photo3
-            // }));
+            try {
+            window.photo1 = snap('licencia', 1);
+            window.photo2 = snap('placa', 2);
+            window.photo3 = snap('visitante', 3);
+            } catch (err) {
+            console.error('Error al capturar fotos:', err);
+            Swal.fire('Error', 'No se pudieron capturar las fotos.', 'error');
+            }
         });
-    </script>
+
+        // 5) Limpieza al salir de la página
+        window.addEventListener('beforeunload', () => {
+            Object.values(streams).forEach(s => s && s.getTracks().forEach(t => t.stop()));
+        });
+
+        // 6) Si quieres forzar HTTPS/local para estabilidad de deviceId:
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+            console.warn('Recomendado servir por HTTPS para estabilidad de deviceId.');
+        }
+        })();
+        </script>
+
 
 
 
