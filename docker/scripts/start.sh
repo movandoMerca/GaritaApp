@@ -7,7 +7,7 @@ echo "Starting GaritaApp Laravel Application..."
 
 # Wait for MySQL to be ready
 echo "Waiting for MySQL to be ready..."
-while ! mysqladmin ping -h"mysql" -u"garita_user" -p"garita_password" --silent; do
+while ! mysqladmin ping -h"mysql" -u"garita_user" -p"garita_password" --silent --ssl-mode=DISABLED; do
     echo "MySQL is unavailable - sleeping"
     sleep 2
 done
