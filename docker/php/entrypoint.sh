@@ -17,6 +17,10 @@ if [ ! -f .env ] && [ -f .env.example ]; then
     cp .env.example .env
 fi
 
+if [ -f .env ]; then
+    sed -i 's/\r$//' .env
+fi
+
 rm -f bootstrap/cache/config.php bootstrap/cache/routes-v7.php bootstrap/cache/services.php bootstrap/cache/packages.php
 
 if [ -n "$DB_HOST" ]; then
@@ -24,6 +28,11 @@ if [ -n "$DB_HOST" ]; then
         echo "Waiting for MySQL at $DB_HOST:${DB_PORT:-3306}..."
         sleep 2
     done
+fi
+
+if [ -z "$APP_KEY" ] && [ -f .env ]; then
+    APP_KEY="$(grep -E '^APP_KEY=' .env | tail -n 1 | cut -d '=' -f2- | tr -d '\r')"
+    export APP_KEY
 fi
 
 if [ -z "$APP_KEY" ]; then
@@ -36,6 +45,13 @@ if [ -z "$APP_KEY" ]; then
         printf '\nAPP_KEY=%s\n' "$GENERATED_APP_KEY" >> .env
     fi
 fi
+
+if [ -z "$APP_KEY" ]; then
+    echo "APP_KEY could not be generated." >&2
+    exit 1
+fi
+
+echo "APP_KEY is configured."
 
 php artisan storage:link --force || true
 php artisan config:cache
