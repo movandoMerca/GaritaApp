@@ -64,23 +64,17 @@ class is_admin
                 ],
                 [
                     'title' => 'Residentes',
-                    'icon' => 'media/svg/icons/Home/Building.svg',
-                    'bullet' => 'line',
                     'root' => true,
-                    'submenu' => [
-                        [
-                            [
-                                'title' => 'Crear Residente',
-                                'page' => 'resident/create',
-                            ],
-                            [
-                                'title' => 'Lista de Residentes',
-                                'page' => 'resident/index'
-                            ],
-        
-                        ],
-        
-                    ]
+                    'icon' => 'media/svg/icons/Home/Building.svg',
+                    'page' => 'resident/index',
+                    'new-tab' => false,
+                ],
+                [
+                    'title' => 'Crear Residente',
+                    'root' => true,
+                    'icon' => 'media/svg/icons/Code/Plus.svg',
+                    'page' => 'resident/create',
+                    'new-tab' => false,
                 ],
                 
                 //Reports
@@ -88,24 +82,18 @@ class is_admin
                     'section' => 'Reportes',
                 ],
                 [
-                    'title' => 'Reportes',
-                    'icon' => 'media/svg/icons/Shopping/Chart-pie.svg',
-                    'bullet' => 'line',
+                    'title' => 'Visitas por fecha',
                     'root' => true,
-                    'submenu' => [
-                        [
-                            [
-                                'title' => 'Visitas por fecha',
-                                'page' => '/visit/index',
-                            ],
-                            [
-                                'title' => 'Visitas por residente',
-                                'page' => 'visit/reportbyresident'
-                            ],
-        
-                        ],
-        
-                    ]
+                    'icon' => 'media/svg/icons/Shopping/Chart-pie.svg',
+                    'page' => 'visit/index',
+                    'new-tab' => false,
+                ],
+                [
+                    'title' => 'Visitas por residente',
+                    'root' => true,
+                    'icon' => 'media/svg/icons/Shopping/Chart-bar1.svg',
+                    'page' => 'visit/reportbyresident',
+                    'new-tab' => false,
                 ],
                 //Admin
                 [
@@ -114,25 +102,18 @@ class is_admin
                 ],
                 [
                     'title' => 'Usuarios',
+                    'root' => true,
                     'icon' => 'media/svg/icons/General/User.svg',
-                    'bullet' => 'line',
-                    'display' => false,
-                    'root' => false,
-                    'submenu' => [
-                        [
-                            [
-                                'title' => 'Crear Usuario',
-                                'page' => 'users/create',
-                            ],
-                            [
-                                'title' => 'Lista de Usuarios',
-                                'page' => 'users/index'
-                            ] 
-        
-                        ],
-        
-                    ]
-                    ],
+                    'page' => 'users/index',
+                    'new-tab' => false,
+                ],
+                [
+                    'title' => 'Crear Usuario',
+                    'root' => true,
+                    'icon' => 'media/svg/icons/Communication/Add-user.svg',
+                    'page' => 'users/create',
+                    'new-tab' => false,
+                ],
                     [
                         'title' => 'Carga de Residentes',
                         'root' => true,
@@ -180,47 +161,35 @@ class is_admin
                 ],
                 [
                     'title' => 'Residentes',
-                    'icon' => 'media/svg/icons/Home/Building.svg',
-                    'bullet' => 'line',
                     'root' => true,
-                    'submenu' => [
-                        [
-                            [
-                                'title' => 'Crear Residente',
-                                'page' => 'resident/create',
-                            ],
-                            [
-                                'title' => 'Lista de Residentes',
-                                'page' => 'resident/index'
-                            ],
-        
-                        ],
-        
-                    ]
+                    'icon' => 'media/svg/icons/Home/Building.svg',
+                    'page' => 'resident/index',
+                    'new-tab' => false,
+                ],
+                [
+                    'title' => 'Crear Residente',
+                    'root' => true,
+                    'icon' => 'media/svg/icons/Code/Plus.svg',
+                    'page' => 'resident/create',
+                    'new-tab' => false,
                 ],
                 //Reports
                 [
                     'section' => 'Reportes',
                 ],
                 [
-                    'title' => 'Reportes',
-                    'icon' => 'media/svg/icons/Shopping/Chart-pie.svg',
-                    'bullet' => 'line',
+                    'title' => 'Visitas por fecha',
                     'root' => true,
-                    'submenu' => [
-                        [
-                            [
-                                'title' => 'Visitas por fecha',
-                                'page' => '/visit/index',
-                            ],
-                            [
-                                'title' => 'Visitas por residente',
-                                'page' => 'visit/reportbyresident'
-                            ],
-        
-                        ],
-        
-                    ]
+                    'icon' => 'media/svg/icons/Shopping/Chart-pie.svg',
+                    'page' => 'visit/index',
+                    'new-tab' => false,
+                ],
+                [
+                    'title' => 'Visitas por residente',
+                    'root' => true,
+                    'icon' => 'media/svg/icons/Shopping/Chart-bar1.svg',
+                    'page' => 'visit/reportbyresident',
+                    'new-tab' => false,
                 ],
                 //Admin
                 [
@@ -229,54 +198,43 @@ class is_admin
                 ],
                 [
                     'title' => 'Usuarios',
+                    'root' => true,
                     'icon' => 'media/svg/icons/General/User.svg',
-                    'bullet' => 'line',
-                    'display' => false,
-                    'root' => false,
-                    'submenu' => [
-                        [
-                            [
-                                'title' => 'Crear Usuario',
-                                'page' => 'users/create',
-                            ],
-                            [
-                                'title' => 'Lista de Usuarios',
-                                'page' => 'users/index'
-                            ],
-        
-                        ],
-        
-                    ]
-                    ],
+                    'page' => 'users/index',
+                    'new-tab' => false,
+                ],
+                [
+                    'title' => 'Crear Usuario',
+                    'root' => true,
+                    'icon' => 'media/svg/icons/Communication/Add-user.svg',
+                    'page' => 'users/create',
+                    'new-tab' => false,
+                ],
                     [
                         'section' => 'Super Usuario',
                         'display' => false
                     ],
                     [
                         'title' => 'Configuracion',
+                        'root' => true,
                         'icon' => 'fa fa-cog',
-                        'bullet' => 'line',
-                        'display' => false,
-                        'root' => false,
-                        'submenu' => [
-                            [
-                                [
-                                    'title' => 'Configuracion de la pagina',
-                                    'page' => 'config/index',
-                                ]    ,
-                                [
-                                    'title' => 'Carga de Residentes',
-                                    'page' => 'resident/indexcsv',
-                                ] ,
-                                [
-                                    'title' => 'Log del Sistema',
-                                    'page' => 'log/index',
-                                ]                               
-            
-                            ],
-            
-                        ]
-                        ]
+                        'page' => 'config/index',
+                        'new-tab' => false,
+                    ],
+                    [
+                        'title' => 'Carga de Residentes',
+                        'root' => true,
+                        'icon' => 'media/svg/icons/Files/Upload.svg',
+                        'page' => 'resident/indexcsv',
+                        'new-tab' => false,
+                    ],
+                    [
+                        'title' => 'Log del Sistema',
+                        'root' => true,
+                        'icon' => 'media/svg/icons/Text/Bullet-list.svg',
+                        'page' => 'log/index',
+                        'new-tab' => false,
+                    ]
             
          
             ]
