@@ -1,46 +1,96 @@
-# Metronic 7 + Laravel 8
+# GaritaApp
 
-### Introduction
+Aplicacion Laravel 8 preparada para correr en Docker con PHP 8.2, Nginx, MySQL 8.0 y almacenamiento de imagenes en S3 por carpeta de garita.
 
-...
+## Docker local
 
-### Installation
-
-Laravel has a set of requirements in order to ron smoothly in specific environment. Please see [requirements](https://laravel.com/docs/7.x#server-requirements) section in Laravel documentation.
-
-Metronic similarly uses additional plugins and frameworks, so ensure You have [Composer](https://getcomposer.org/) and [Node](https://nodejs.org/) installed on Your machine.
-
-Assuming your machine meets all requirements - let's process to installation of Metronic Laravel integration (skeleton).
-
-1. Open in cmd or terminal app and navigate to this folder
-2. Run following commands
+1. Copia el archivo de entorno:
 
 ```bash
-composer install
+cp .env.docker.example .env
 ```
+
+2. Configura los valores reales de `APP_KEY`, `APP_URL`, credenciales de MySQL y credenciales S3. Si `APP_KEY` queda vacio, el contenedor genera una clave en el primer arranque.
+
+3. Levanta todo el sistema:
 
 ```bash
-cp .env.example .env
+docker compose up -d --build
 ```
+
+La app queda disponible en `http://localhost:${APP_PORT}`. Por defecto usa `http://localhost:8080`.
+
+## Base de datos
+
+El servicio `mysql` importa automaticamente `database/migrations/data.sql` solo cuando el volumen `mysql_data` esta vacio. No se ejecutan migraciones Laravel automaticamente porque el esquema base depende del dump SQL.
+
+Para reiniciar completamente la base local:
 
 ```bash
-php artisan key:generate
+docker compose down -v
+docker compose up -d --build
 ```
+
+## S3 por garita
+
+Todas las imagenes usan los discos Laravel existentes:
+
+- `public`: brand y logo.
+- `visits`: fotos de licencia, placa y visitante.
+
+Cuando `IMAGE_STORAGE_DRIVER=s3`, ambos discos guardan en el mismo bucket usando `GARITA_FOLDER` como prefijo:
+
+```env
+IMAGE_STORAGE_DRIVER=s3
+GARITA_FOLDER=garita-001
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_DEFAULT_REGION=us-east-1
+AWS_BUCKET=bucket-compartido
+AWS_URL=
+AWS_ENDPOINT=
+```
+
+Rutas esperadas en S3:
+
+- `garita-001/public/<archivo>`
+- `garita-001/visits/<archivo>`
+
+Los objetos pueden permanecer privados porque la aplicacion los sirve por rutas Laravel.
+
+## Produccion
+
+El stack expone HTTP. Para HTTPS, usar un proxy externo como Nginx Proxy Manager, Cloudflare, ALB o un reverse proxy del servidor.
+
+Valores recomendados en produccion:
+
+```env
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://tu-dominio.com
+APP_PORT=8080
+DB_HOST=mysql
+IMAGE_STORAGE_DRIVER=s3
+GARITA_FOLDER=nombre-de-la-garita
+```
+
+## Verificacion
+
+Comandos utiles:
 
 ```bash
-npm install
+docker compose ps
+docker compose logs -f app
+docker compose logs -f web
+docker compose exec app php artisan config:cache
+docker compose exec app php artisan route:cache
+docker compose exec app php artisan view:cache
 ```
+
+Healthcheck:
 
 ```bash
-npm run dev
+curl http://localhost:8080/healthz
 ```
 
-```bash
-php artisan serve
-```
-
-And navigate to generated server link (http://127.0.0.1:8000)
-
-### Copyright
-
-...
+Debe responder `ok`.

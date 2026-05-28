@@ -77,28 +77,31 @@
 
                     </div>
                 </div><br>
-                @if ($config->enable_fotolicencia == 1)
-                    <h3>Licencia</h3>
-                    <hr><br>
-                    <div class="row text-center">
-                        <div class="col-md-12">
-                            <img src="{{ route('img.visits', $visits->path_licencia) }}" alt=""
-                                style="max-width: 350px;">
+                <h3>Fotos</h3>
+                <hr><br>
+                <div class="row text-center">
+                    @if ($config->enable_fotovisitante == 1 && $visits->path_visitante != null)
+                        <div class="col-md-4 mb-5">
+                            <span class="d-block font-weight-bold mb-3">Visitante</span>
+                            <img src="{{ route('img.visits', $visits->path_visitante) }}" alt="Foto del visitante"
+                                style="max-width: 350px; width: 100%;">
                         </div>
-                    </div><br><br>
-                @endif
-                @if (($config->enable_fotoplaca ?? 1) == 1)
-                    <h3>Placa</h3>
-                    <hr><br>
-                    <div class="row text-center">
-                        <div class="col-md-12">
-                            @if ($visits->path_placa != null)
-                                <img src="{{ route('img.visits', $visits->path_placa) }}" alt=""
-                                    style="max-width: 350px;">
-                            @endif
+                    @endif
+                    @if ($config->enable_fotolicencia == 1 && $visits->path_licencia != null)
+                        <div class="col-md-4 mb-5">
+                            <span class="d-block font-weight-bold mb-3">Licencia</span>
+                            <img src="{{ route('img.visits', $visits->path_licencia) }}" alt="Foto de licencia"
+                                style="max-width: 350px; width: 100%;">
                         </div>
-                    </div><br><br>
-                @endif
+                    @endif
+                    @if (($config->enable_fotoplaca ?? 1) == 1 && $visits->path_placa != null)
+                        <div class="col-md-4 mb-5">
+                            <span class="d-block font-weight-bold mb-3">Placa</span>
+                            <img src="{{ route('img.visits', $visits->path_placa) }}" alt="Foto de placa"
+                                style="max-width: 350px; width: 100%;">
+                        </div>
+                    @endif
+                </div><br><br>
      
                 <div class="row text-center">
                     <div class="col-md-12 ">

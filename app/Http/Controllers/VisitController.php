@@ -10,6 +10,9 @@ use App\Models\Resident;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\File;
 use Illuminate\Http\Response;
+use Dompdf\Dompdf;
+use Dompdf\Options;
+use Throwable;
 
 
 class VisitController extends Controller
@@ -29,7 +32,7 @@ class VisitController extends Controller
 
         $to = $to . ' 23:59';
 
-        $visits = visit::whereBetween('fechaingreso', [$from, $to])->get();
+        $visits = visit::with('residente')->whereBetween('fechaingreso', [$from, $to])->get();
         $page_title = 'Visitas';
         $page_description = 'Reporte por Fechas';
 
@@ -42,6 +45,69 @@ class VisitController extends Controller
         $log->save();
 
         return view('reports.reportbydate', compact('page_title', 'page_description', 'visits', 'config', 'image'));
+    }
+
+    public function tablePdf($from, $to)
+    {
+        $toDateTime = $to . ' 23:59';
+
+        $visits = Visit::with('residente')
+            ->whereBetween('fechaingreso', [$from, $toDateTime])
+            ->orderBy('fechaingreso', 'asc')
+            ->get();
+
+        $config = config::find(1);
+        $image = $this->base64BrandImage($config ? $config->path_brand : null);
+        $photos = [];
+
+        foreach ($visits as $visit) {
+            $photos[$visit->id] = [
+                'licencia' => $this->visitImageDataUri($visit->path_licencia),
+                'placa' => $this->visitImageDataUri($visit->path_placa),
+                'visitante' => $this->visitImageDataUri($visit->path_visitante),
+            ];
+        }
+
+        $html = view('reports.reportbydate_pdf', compact('visits', 'config', 'image', 'photos', 'from', 'to'))->render();
+
+        $options = new Options();
+        $options->set('defaultFont', 'DejaVu Sans');
+        $options->set('isHtml5ParserEnabled', true);
+        $options->set('isRemoteEnabled', false);
+
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html);
+        $dompdf->setPaper('letter', 'portrait');
+        $dompdf->render();
+
+        $filename = 'reporte-visitas-' . $from . '-' . $to . '.pdf';
+
+        return response($dompdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
+    private function visitImageDataUri($path)
+    {
+        if (!$path) {
+            return null;
+        }
+
+        try {
+            if (!Storage::disk('visits')->exists($path)) {
+                return null;
+            }
+
+            $contents = Storage::disk('visits')->get($path);
+            $imageInfo = @getimagesizefromstring($contents);
+            $mime = $imageInfo['mime'] ?? 'image/png';
+
+            return 'data:' . $mime . ';base64,' . base64_encode($contents);
+        } catch (Throwable $exception) {
+            report($exception);
+            return null;
+        }
     }
 
 
@@ -325,8 +391,12 @@ class VisitController extends Controller
 
     public function get_img($filename)
     {
+        if (!$filename || !Storage::disk('visits')->exists($filename)) {
+            abort(404);
+        }
+
         $file = Storage::disk('visits')->get($filename);
-        return new Response($file, 200);
+        return new Response($file, 200, ['Content-Type' => 'image/png']);
     }
 
     public function img_camara(Request $request)

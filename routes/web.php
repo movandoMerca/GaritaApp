@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Auth;
 Route::get('/licencia',[superadminController::class,'licencia'])->name('licencia')->withoutMiddleware('web');
 Route::post('/validar',[superadminController::class,'validacion'])->name('validar')->withoutMiddleware('web');
 Route::post('/trial',[superadminController::class,'trial'])->name('trial')->withoutMiddleware('web');
+Route::get('/healthz', 'HealthController')->withoutMiddleware('web');
 
 
 Route::get('/', 'PagesController@index')->middleware('auth');
@@ -70,6 +71,7 @@ Route::prefix('visit')->group(function () {
     Route::get('reportbyresident', [VisitController::class, 'reportbyresidentform'])->name('byresident.visits')->middleware('auth');
     Route::get('ajax', [ReportController::class, 'detail_ajax'])->name('widajax.visits')->middleware('auth');
     Route::get('tablebyresident/{from}/{to}/{id}', [VisitController::class, 'tablebyresident'])->name('tablebyresident.visits')->middleware('auth');
+    Route::get('table/{from}/{to}/pdf', [VisitController::class, 'tablePdf'])->name('tablepdf.visits')->middleware('auth');
     Route::post('saveimg', [VisitController::class, 'saveimg'])->name('saveimg.visits')->middleware('auth');
     Route::get('detailvisit/{id}', [VisitController::class, 'detailvisit'])->name('detailv.visits')->middleware('auth');
     Route::get('/imagen/{filename}', [VisitController::class, 'get_img'])->name('img.visits')->middleware('auth');

@@ -1,5 +1,18 @@
 <?php
 
+$imageStorageDriver = env('IMAGE_STORAGE_DRIVER', 'local');
+$garitaFolder = trim(env('GARITA_FOLDER', 'garita-001'), '/');
+$s3BaseConfig = [
+    'driver' => 's3',
+    'key' => env('AWS_ACCESS_KEY_ID'),
+    'secret' => env('AWS_SECRET_ACCESS_KEY'),
+    'region' => env('AWS_DEFAULT_REGION'),
+    'bucket' => env('AWS_BUCKET'),
+    'url' => env('AWS_URL'),
+    'endpoint' => env('AWS_ENDPOINT'),
+    'visibility' => 'private',
+];
+
 return [
 
     /*
@@ -48,18 +61,22 @@ return [
             'root' => storage_path('app'),
         ],
 
-        'public' => [
-            'driver' => 'local',
-            'root' => storage_path('app/public'),
-            'url' => env('APP_URL').'/storage',
-            'visibility' => 'public',
-        ],
-        'visits' => [
-            'driver' => 'local',
-            'root' => storage_path('app/visits'),
-            'url' => env('APP_URL').'/storage',
-            'visibility' => 'public',
-        ],
+        'public' => $imageStorageDriver === 's3'
+            ? array_merge($s3BaseConfig, ['root' => $garitaFolder.'/public'])
+            : [
+                'driver' => 'local',
+                'root' => storage_path('app/public'),
+                'url' => env('APP_URL').'/storage',
+                'visibility' => 'public',
+            ],
+        'visits' => $imageStorageDriver === 's3'
+            ? array_merge($s3BaseConfig, ['root' => $garitaFolder.'/visits'])
+            : [
+                'driver' => 'local',
+                'root' => storage_path('app/visits'),
+                'url' => env('APP_URL').'/storage',
+                'visibility' => 'public',
+            ],
         'config' => [
             'driver' => 'local',
             'root' => storage_path('configuracion/datos'),
@@ -74,6 +91,7 @@ return [
             'bucket' => env('AWS_BUCKET'),
             'url' => env('AWS_URL'),
             'endpoint' => env('AWS_ENDPOINT'),
+            'root' => $garitaFolder,
         ],
 
     ],

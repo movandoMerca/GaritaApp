@@ -227,7 +227,8 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'admin','administrador','admin@admin.com',NULL,'$2y$10$LVUb4Rsx/yRU9pnaNRdckuOOmMBjzXB5521CmATauBDy2wa1MCTcG','UM8NCFzMyfKnzOdjvPVGmffI7Dkf7sn7Tx0kPlsyNZWxQelfO0PA338cUcqk',NULL,'2021-09-16 15:43:34',1,1,1,1,NULL,NULL,NULL);
+-- Usuario inicial: admin / Clave: admin123
+INSERT INTO `users` VALUES (1,'admin','administrador','admin@admin.com',NULL,'$2y$10$k08vcMc90yB6tuPd/W0lNe.FdaXFIKFEZDgx59LcI3cSbvYKFh8Bi','UM8NCFzMyfKnzOdjvPVGmffI7Dkf7sn7Tx0kPlsyNZWxQelfO0PA338cUcqk',NULL,'2021-09-16 15:43:34',1,1,1,1,NULL,NULL,NULL);
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 

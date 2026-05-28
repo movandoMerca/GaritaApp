@@ -8,6 +8,12 @@
                 <h2 class="card-label text-white">Reporte de Visitas</h2>
                 <input type="hidden" name="logo" id="logo" value="{{ $image }}">
             </div>
+            <div class="card-toolbar">
+                <a href="{{ route('tablepdf.visits', ['from' => request()->route('from'), 'to' => request()->route('to')]) }}"
+                    class="btn btn-sm btn-light-primary font-weight-bolder text-uppercase">
+                    Descargar PDF
+                </a>
+            </div>
         </div>
         <div class="card-body">
             <!--begin: Datatable-->

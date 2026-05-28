@@ -12,6 +12,7 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\File;
 use Illuminate\Http\Response;
+use Throwable;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
@@ -126,9 +127,14 @@ class superadminController extends Controller
 
         private function imageResponse($path)
         {
-                if ($path && Storage::disk('public')->exists($path)) {
-                        $file = Storage::disk('public')->get($path);
-                } else {
+                try {
+                        if ($path && Storage::disk('public')->exists($path)) {
+                                $file = Storage::disk('public')->get($path);
+                        } else {
+                                $file = File::get(public_path('media/logos/mardysa.png'));
+                        }
+                } catch (Throwable $exception) {
+                        report($exception);
                         $file = File::get(public_path('media/logos/mardysa.png'));
                 }
 
