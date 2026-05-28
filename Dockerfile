@@ -34,9 +34,10 @@ COPY --from=assets --chown=www-data:www-data /app/public/js ./public/js
 COPY --from=assets --chown=www-data:www-data /app/public/mix-manifest.json ./public/mix-manifest.json
 COPY docker/php/entrypoint.sh /usr/local/bin/garita-entrypoint
 
-RUN chmod +x /usr/local/bin/garita-entrypoint \
+RUN sed -i 's/\r$//' /usr/local/bin/garita-entrypoint \
+    && chmod +x /usr/local/bin/garita-entrypoint \
     && mkdir -p storage/app/public storage/app/visits storage/configuracion/datos storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
-ENTRYPOINT ["garita-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/garita-entrypoint"]
 CMD ["php-fpm"]
