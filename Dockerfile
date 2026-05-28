@@ -1,10 +1,9 @@
 FROM node:22-alpine AS assets
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package*.json ./
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY resources ./resources
 COPY webpack.mix.js ./
-COPY public/mix-manifest.json ./public/mix-manifest.json
 RUN mkdir -p public \
     && npm run production \
     && if [ ! -f public/mix-manifest.json ]; then printf '{}\n' > public/mix-manifest.json; fi
