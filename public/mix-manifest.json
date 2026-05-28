@@ -1,4 +1,6 @@
 {
     "/js/app.js": "/js/app.js",
-    "/css/app.css": "/css/app.css"
+    "/css/app.css": "/css/app.css",
+    "/plugins/global/plugins.bundle.js": "/plugins/global/plugins.bundle.js",
+    "/plugins/custom/prismjs/prismjs.bundle.js": "/plugins/custom/prismjs/prismjs.bundle.js"
 }

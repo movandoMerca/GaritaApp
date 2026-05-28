@@ -268,11 +268,10 @@ return [
             ]
         ],
         'css' => [
-            'plugins/global/plugins.bundle.css',
-            'plugins/custom/prismjs/prismjs.bundle.css',
             'css/style.bundle.css',
             'css/app.css',
-            'plugins/custom/datatables/datatables.bundle.css',
+            'https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css',
+            'https://cdn.datatables.net/1.10.23/css/dataTables.bootstrap4.min.css',
             'https://cdn.datatables.net/fixedheader/3.1.9/css/fixedHeader.bootstrap.min.css',
             'https://cdn.datatables.net/responsive/2.2.9/css/responsive.bootstrap.min.css',
         ],
@@ -280,7 +279,8 @@ return [
             'plugins/global/plugins.bundle.js',
             'plugins/custom/prismjs/prismjs.bundle.js',
             'js/scripts.bundle.js',
-            'plugins/custom/datatables/datatables.bundle.js',
+            'https://cdn.datatables.net/1.10.23/js/jquery.dataTables.min.js',
+            'https://cdn.datatables.net/1.10.23/js/dataTables.bootstrap4.min.js',
             'https://cdn.datatables.net/fixedheader/3.1.9/js/dataTables.fixedHeader.min.js',
             'https://cdn.datatables.net/responsive/2.2.9/js/dataTables.responsive.min.js',
             'https://cdn.datatables.net/responsive/2.2.9/js/responsive.bootstrap.min.js',

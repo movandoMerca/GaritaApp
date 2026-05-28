@@ -109,15 +109,24 @@ class superadminController extends Controller
         public function get_brand()
         {
                 $config = config::find(1);
-                $file = Storage::disk('public')->get($config->path_brand);
-                return new Response($file, 200);
+                return $this->imageResponse($config ? $config->path_brand : null);
         }
 
         public function get_login()
         {
                 $config = config::find(1);
-                $file = Storage::disk('public')->get($config->path_logo);
-                return new Response($file, 200);
+                return $this->imageResponse($config ? $config->path_logo : null);
+        }
+
+        private function imageResponse($path)
+        {
+                if ($path && Storage::disk('public')->exists($path)) {
+                        $file = Storage::disk('public')->get($path);
+                } else {
+                        $file = File::get(public_path('media/logos/mardysa.png'));
+                }
+
+                return new Response($file, 200, ['Content-Type' => 'image/png']);
         }
 
 
