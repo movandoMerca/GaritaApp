@@ -2,6 +2,11 @@
 
 $imageStorageDriver = env('IMAGE_STORAGE_DRIVER', 'local');
 $garitaFolder = trim(env('GARITA_FOLDER', 'garita-001'), '/');
+$useS3Images = $imageStorageDriver === 's3'
+    && env('AWS_ACCESS_KEY_ID')
+    && env('AWS_SECRET_ACCESS_KEY')
+    && env('AWS_DEFAULT_REGION')
+    && env('AWS_BUCKET');
 $s3BaseConfig = [
     'driver' => 's3',
     'key' => env('AWS_ACCESS_KEY_ID'),
@@ -61,7 +66,7 @@ return [
             'root' => storage_path('app'),
         ],
 
-        'public' => $imageStorageDriver === 's3'
+        'public' => $useS3Images
             ? array_merge($s3BaseConfig, ['root' => $garitaFolder.'/public'])
             : [
                 'driver' => 'local',
@@ -69,7 +74,7 @@ return [
                 'url' => env('APP_URL').'/storage',
                 'visibility' => 'public',
             ],
-        'visits' => $imageStorageDriver === 's3'
+        'visits' => $useS3Images
             ? array_merge($s3BaseConfig, ['root' => $garitaFolder.'/visits'])
             : [
                 'driver' => 'local',

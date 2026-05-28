@@ -9,6 +9,8 @@ services:
     environment:
       DB_HOST: mysql
       DB_PORT: 3306
+      LOG_CHANNEL: stderr
+      AWS_EC2_METADATA_DISABLED: "true"
     volumes:
       - app_storage:/var/www/html/storage
       - app_cache:/var/www/html/bootstrap/cache
