@@ -28,6 +28,7 @@ CREATE TABLE `config` (
   `path_logo` varchar(200) DEFAULT NULL,
   `enable_fotolicencia` tinyint(1) DEFAULT '0',
   `enable_fotovisitante` tinyint(1) DEFAULT '0',
+  `enable_fotoplaca` tinyint(1) DEFAULT '1',
   `enable_webcam` tinyint(1) DEFAULT '0',
   `enable_accesotel` tinyint(1) DEFAULT '0',
   `enable_tel` tinyint(1) DEFAULT '0',
@@ -45,7 +46,7 @@ CREATE TABLE `config` (
 
 LOCK TABLES `config` WRITE;
 /*!40000 ALTER TABLE `config` DISABLE KEYS */;
-INSERT INTO `config` VALUES (1,'1629304004logo.png','1629304004mardysa.png',1,1,1,1,1,1,NULL,'2021-08-18 10:26:44',NULL);
+INSERT INTO `config` VALUES (1,'1629304004logo.png','1629304004mardysa.png',1,1,1,1,1,1,1,NULL,'2021-08-18 10:26:44',NULL);
 /*!40000 ALTER TABLE `config` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -211,6 +212,9 @@ CREATE TABLE `users` (
   `is_admin` tinyint DEFAULT '0',
   `is_superuser` tinyint DEFAULT '0',
   `tipoResidente` tinyint DEFAULT '1',
+  `camara_id_placa` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `camara_id_visitante` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `camara_id_licencia` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `users_username_unique` (`username`),
   UNIQUE KEY `users_email_unique` (`email`)
@@ -223,7 +227,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'admin','administrador','admin@admin.com',NULL,'$2y$10$LVUb4Rsx/yRU9pnaNRdckuOOmMBjzXB5521CmATauBDy2wa1MCTcG','UM8NCFzMyfKnzOdjvPVGmffI7Dkf7sn7Tx0kPlsyNZWxQelfO0PA338cUcqk',NULL,'2021-09-16 15:43:34',1,1,1,1);
+INSERT INTO `users` VALUES (1,'admin','administrador','admin@admin.com',NULL,'$2y$10$LVUb4Rsx/yRU9pnaNRdckuOOmMBjzXB5521CmATauBDy2wa1MCTcG','UM8NCFzMyfKnzOdjvPVGmffI7Dkf7sn7Tx0kPlsyNZWxQelfO0PA338cUcqk',NULL,'2021-09-16 15:43:34',1,1,1,1,NULL,NULL,NULL);
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 

@@ -7,9 +7,6 @@ use App\Models\Resident;
 use App\Models\config;
 use App\Models\log;
 use App\Http\Controllers\Controller;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\File;
-use Illuminate\Http\Response;
 
 
 
@@ -25,7 +22,7 @@ class ResidentController extends Controller
         $page_description = 'Lista de todos los residentes del condominio';
 
         $residents = Resident::where('estado','1')->get();    
-        $image = base64_encode(Storage::disk('public')->get($config->path_brand));     
+        $image = $this->base64BrandImage($config ? $config->path_brand : null);     
 
            return view('residents.resident_crud',compact('residents','page_title','page_description','image'));
 
@@ -87,11 +84,7 @@ class ResidentController extends Controller
             $resident->Apellidos2 = $request->input('Apellidos2');
             $resident->accesotel = $request->input('accesotel');
 
-            if ($request->input('tipo') == 'on'){
-                $resident->tipoResidente = 1;
-            } else {
-                $resident->tipoResidente = 0;
-            }
+            $resident->tipoResidente = $request->input('tipo') == '1' ? 1 : 0;
 
 
             $resident->estado = 1;
@@ -141,11 +134,7 @@ class ResidentController extends Controller
             $resident->accesotel = $request->input('accesotel');
             $resident->save();
 
-            if ($request->input('tipo') == 'on'){
-                $resident->tipoResidente = 1;
-            } else {
-                $resident->tipoResidente = 0;
-            }
+            $resident->tipoResidente = $request->input('tipo') == '1' ? 1 : 0;
 
             if ($request->input('estado') == 'on'){
                 $resident->estado = 1;

@@ -268,6 +268,10 @@ return [
             ]
         ],
         'css' => [
+            'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css',
+            'https://cdnjs.cloudflare.com/ajax/libs/line-awesome/1.3.0/line-awesome/css/line-awesome.min.css',
+            'plugins/flaticon/flaticon.css',
+            'plugins/flaticon2/flaticon.css',
             'css/style.bundle.css',
             'css/app.css',
             'https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css',

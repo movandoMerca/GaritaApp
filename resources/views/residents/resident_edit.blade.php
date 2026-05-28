@@ -163,9 +163,11 @@
                         <div class="form-group row">
                             <label class="col-xl-3 col-lg-3 col-form-label">Tipo</label>
                             <div class="col-lg-9 col-xl-9">
-                                <input data-switch="true" type="checkbox" @if($resident->tipoResidente == 1) checked @endif data-on-text="Residente"
-                                    data-handle-width="100" data-off-text="Inquilino" data-on-color="primary"
-                                    data-off-color="primary" name="tipo" id="tipo" />
+                                <input type="hidden" name="tipo" id="tipo" value="{{ $resident->tipoResidente == 1 ? '1' : '0' }}">
+                                <div class="btn-group btn-group-sm resident-type-toggle" role="group" aria-label="Tipo de residente">
+                                    <button type="button" class="btn {{ $resident->tipoResidente == 1 ? 'btn-primary active' : 'btn-light-secondary' }}" data-resident-type="1">Residente</button>
+                                    <button type="button" class="btn {{ $resident->tipoResidente == 1 ? 'btn-light-secondary' : 'btn-primary active' }}" data-resident-type="0">Inquilino</button>
+                                </div>
                             </div>
                         </div>
                       
@@ -197,24 +199,14 @@
 
 @section('scripts')
     <script>
-        var KTBootstrapSwitch = function() {
-
-            // Private functions
-            var demos = function() {
-                // minimum setup
-                $('[data-switch=true]').bootstrapSwitch();
-            };
-
-            return {
-                // public functions
-                init: function() {
-                    demos();
-                },
-            };
-        }();
-
         jQuery(document).ready(function() {
-            KTBootstrapSwitch.init();
+            $('[data-resident-type]').on('click', function() {
+                var selectedType = $(this).data('resident-type').toString();
+
+                $('#tipo').val(selectedType);
+                $('[data-resident-type]').removeClass('btn-primary active').addClass('btn-light-secondary');
+                $(this).removeClass('btn-light-secondary').addClass('btn-primary active');
+            });
         });
     </script>
 @endsection

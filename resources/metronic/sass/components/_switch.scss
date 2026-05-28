@@ -58,7 +58,9 @@
     // State icons
     &.switch-icon {
         input:checked ~ span:after {
-            @include ki(get($ki-types, check));
+            content: "\2713";
+            font-family: Arial, sans-serif;
+            font-weight: 700;
             line-height: 0;
         }
     }

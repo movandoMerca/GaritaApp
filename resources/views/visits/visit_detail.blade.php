@@ -87,14 +87,18 @@
                         </div>
                     </div><br><br>
                 @endif
-                <h3>Placa</h3>
-                     <hr><br>
+                @if (($config->enable_fotoplaca ?? 1) == 1)
+                    <h3>Placa</h3>
+                    <hr><br>
                     <div class="row text-center">
                         <div class="col-md-12">
-                            <img src="{{ route('img.visits', $visits->path_placa) }}" alt=""
-                                style="max-width: 350px;">
+                            @if ($visits->path_placa != null)
+                                <img src="{{ route('img.visits', $visits->path_placa) }}" alt=""
+                                    style="max-width: 350px;">
+                            @endif
                         </div>
                     </div><br><br>
+                @endif
      
                 <div class="row text-center">
                     <div class="col-md-12 ">

@@ -34,7 +34,7 @@ class VisitController extends Controller
         $page_description = 'Reporte por Fechas';
 
         $config = config::find(1);
-        $image = base64_encode(Storage::disk('public')->get($config->path_brand));
+        $image = $this->base64BrandImage($config ? $config->path_brand : null);
 
         $log = new log;
         $log->user_id = auth()->user()->id;
@@ -50,7 +50,7 @@ class VisitController extends Controller
         $to = $to . ' 23:59';
         $visits = visit::whereBetween('fechaingreso', [$from, $to])->where('residente_id', $id)->get();
         $config = config::find(1);
-        $image = base64_encode(Storage::disk('public')->get($config->path_brand));
+        $image = $this->base64BrandImage($config ? $config->path_brand : null);
         $page_title = 'Visitas';
         $page_description = 'Reporte por Residente';
         $config = config::find(1);
@@ -78,13 +78,18 @@ class VisitController extends Controller
         $page_description = 'Nueva Visita';
 
         $user = Auth()->user();
-        if ($user->camara_id_licencia == null || $user->camara_id_placa == null || $user->camara_id_visitante == null) {
+        $config = config::find(1);
+
+        if (
+            (($config->enable_fotolicencia ?? 0) == 1 && $user->camara_id_licencia == null) ||
+            (($config->enable_fotoplaca ?? 1) == 1 && $user->camara_id_placa == null) ||
+            (($config->enable_fotovisitante ?? 0) == 1 && $user->camara_id_visitante == null)
+        ) {
             return redirect()->route('camaras.user');
         }
 
 
         $residents = Resident::where('estado', '1')->get();
-        $config = config::find(1);
 
 
         return view('visits.visit', compact('page_title', 'page_description', 'residents', 'config'));
@@ -92,22 +97,40 @@ class VisitController extends Controller
 
     public function save(Request $request)
     {
+        $config = config::find(1);
+        $enableFotoLicencia = ($config->enable_fotolicencia ?? 0) == 1;
+        $enableFotoPlaca = ($config->enable_fotoplaca ?? 1) == 1;
+        $enableFotoVisitante = ($config->enable_fotovisitante ?? 0) == 1;
+
+        $rules = [
+            'placa' => 'required',
+            'cono' => 'required',
+            'tokens' => 'required',
+            'residente' => 'required',
+        ];
+
+        if ($enableFotoLicencia) {
+            $rules['photo1'] = 'required';
+        }
+
+        if ($enableFotoPlaca) {
+            $rules['photo2'] = 'required';
+        }
+
+        if ($enableFotoVisitante) {
+            $rules['photo3'] = 'required';
+        }
 
         $request->validate(
+            $rules,
             [
-                'placa' => 'required',
-                'cono' => 'required',
-                'tokens' => 'required',
-                'residente' => 'required',
-                'photo1' => 'required'
-
-            ],
-            [
-                'placa.required' => 'Ingrese la placa del vehiculo',
-                'cono.required' => 'Ingrese el numero de cono ',
-                'tokens.required' => 'No escaneo la licencia del visitante',
-                'residente.required' => 'Seleccione el numero de casa',
-                'photo1.required' => 'Porfavor Tomar la foto',
+                'placa.required' => 'Ingrese la placa del vehículo',
+                'cono.required' => 'Ingrese el número de cono ',
+                'tokens.required' => 'No escaneó la licencia del visitante',
+                'residente.required' => 'Seleccione el número de casa',
+                'photo1.required' => 'Por favor tomar la foto de la licencia',
+                'photo2.required' => 'Por favor tomar la foto de la placa',
+                'photo3.required' => 'Por favor tomar la foto del visitante',
             ]
         );
 
@@ -156,25 +179,26 @@ class VisitController extends Controller
 
         }
 
-        $photo1_name = uniqid('photo1_') . '.png';
-        $photo2_name = uniqid('photo2_') . '.png';
-        $photo3_name = uniqid('photo3_') . '.png';
+        if ($enableFotoLicencia && $request->input('photo1')) {
+            $photo1_name = uniqid('photo1_') . '.png';
+            $photo1_file = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $request->input('photo1')));
+            Storage::disk('visits')->put($photo1_name, $photo1_file);
+            $visit->path_licencia = $photo1_name;
+        }
 
-        $photo1 = $request->input('photo1');
-        $photo2 = $request->input('photo2');
-        $photo3 = $request->input('photo3');
+        if ($enableFotoPlaca && $request->input('photo2')) {
+            $photo2_name = uniqid('photo2_') . '.png';
+            $photo2_file = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $request->input('photo2')));
+            Storage::disk('visits')->put($photo2_name, $photo2_file);
+            $visit->path_placa = $photo2_name;
+        }
 
-        $photo1_file = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $photo1));
-        $photo2_file = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $photo2));
-        $photo3_file = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $photo3));
-
-        Storage::disk('visits')->put($photo1_name, $photo1_file);
-        Storage::disk('visits')->put($photo2_name, $photo2_file);
-        Storage::disk('visits')->put($photo3_name, $photo3_file);
-
-        $visit->path_licencia = $photo1_name;
-        $visit->path_placa = $photo2_name;
-        $visit->path_visitante = $photo3_name;
+        if ($enableFotoVisitante && $request->input('photo3')) {
+            $photo3_name = uniqid('photo3_') . '.png';
+            $photo3_file = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $request->input('photo3')));
+            Storage::disk('visits')->put($photo3_name, $photo3_file);
+            $visit->path_visitante = $photo3_name;
+        }
 
         $visit->save();
 
@@ -400,6 +424,11 @@ class VisitController extends Controller
         $page_title = 'Visitas';
         $page_description = 'Detalle de Visitas';
         $visit = Visit::find($id);
+        $config = config::find(1);
+
+        if (($config->enable_fotoplaca ?? 1) != 1) {
+            return redirect()->route('detailv.visits', ['id' => $visit->id]);
+        }
 
         return view('visits.visit_fotoPlaca', compact('page_title', 'page_description', 'visit'));
     }

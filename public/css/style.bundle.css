@@ -62871,18 +62871,9 @@ code {
   opacity: 0.5;
 }
 .switch.switch-icon input:checked ~ span:after {
-  font-family: Ki;
-  font-style: normal;
-  font-weight: normal;
-  font-variant: normal;
-  line-height: 1;
-  text-decoration: inherit;
-  text-rendering: optimizeLegibility;
-  text-transform: none;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-font-smoothing: antialiased;
-  font-smoothing: antialiased;
-  content: "\F108";
+  content: "\2713";
+  font-family: Arial, sans-serif;
+  font-weight: 700;
   line-height: 0;
 }
 

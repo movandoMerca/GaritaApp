@@ -70,6 +70,12 @@ class superadminController extends Controller
                         $config->enable_fotovisitante = 0;
                 }
 
+                if ($request->input('enable_fotoplaca') == 'on') {
+                        $config->enable_fotoplaca = 1;
+                } else {
+                        $config->enable_fotoplaca = 0;
+                }
+
                 if ($request->input('enable_accesotel') == 'on') {
                         $config->enable_accesotel = 1;
                 } else {

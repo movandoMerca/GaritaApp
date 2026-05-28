@@ -1,5 +1,10 @@
 /node_modules
-/public/plugins
+/public/plugins/*
+!/public/plugins/
+!/public/plugins/flaticon/
+!/public/plugins/flaticon/**
+!/public/plugins/flaticon2/
+!/public/plugins/flaticon2/**
 /storage/*.key
 /vendor
 .env
