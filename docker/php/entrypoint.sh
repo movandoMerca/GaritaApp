@@ -17,6 +17,8 @@ if [ ! -f .env ] && [ -f .env.example ]; then
     cp .env.example .env
 fi
 
+rm -f bootstrap/cache/config.php bootstrap/cache/routes-v7.php bootstrap/cache/services.php bootstrap/cache/packages.php
+
 if [ -n "$DB_HOST" ]; then
     until mysqladmin ping -h"$DB_HOST" -P"${DB_PORT:-3306}" --silent; do
         echo "Waiting for MySQL at $DB_HOST:${DB_PORT:-3306}..."
@@ -25,7 +27,7 @@ if [ -n "$DB_HOST" ]; then
 fi
 
 if [ -z "$APP_KEY" ]; then
-    GENERATED_APP_KEY="$(php artisan key:generate --show --no-interaction)"
+    GENERATED_APP_KEY="$(php -r "echo 'base64:'.base64_encode(random_bytes(32));")"
     export APP_KEY="$GENERATED_APP_KEY"
 
     if grep -q '^APP_KEY=' .env; then
