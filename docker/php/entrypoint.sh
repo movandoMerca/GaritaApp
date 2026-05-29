@@ -24,14 +24,14 @@ fi
 rm -f bootstrap/cache/config.php bootstrap/cache/routes-v7.php bootstrap/cache/services.php bootstrap/cache/packages.php
 
 if [ -n "$DB_HOST" ]; then
-    until mysqladmin ping -h"$DB_HOST" -P"${DB_PORT:-3306}" --silent; do
+    until mysqladmin --ssl=0 ping -h"$DB_HOST" -P"${DB_PORT:-3306}" --silent; do
         echo "Waiting for MySQL at $DB_HOST:${DB_PORT:-3306}..."
         sleep 2
     done
 fi
 
 if [ -n "$MYSQL_ROOT_PASSWORD" ] && [ -n "$DB_DATABASE" ] && [ -n "$DB_USERNAME" ] && [ "$DB_USERNAME" != "root" ]; then
-    mysql -h"$DB_HOST" -P"${DB_PORT:-3306}" -uroot -p"$MYSQL_ROOT_PASSWORD" <<-EOSQL
+    mysql --ssl=0 -h"$DB_HOST" -P"${DB_PORT:-3306}" -uroot -p"$MYSQL_ROOT_PASSWORD" <<-EOSQL
         CREATE DATABASE IF NOT EXISTS \`$DB_DATABASE\`;
         CREATE USER IF NOT EXISTS '$DB_USERNAME'@'%' IDENTIFIED BY '$DB_PASSWORD';
         ALTER USER '$DB_USERNAME'@'%' IDENTIFIED BY '$DB_PASSWORD';
