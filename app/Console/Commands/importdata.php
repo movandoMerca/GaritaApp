@@ -38,6 +38,8 @@ class importdata extends Command
      */
     public function handle()
     {
-        DB::unprepared(file_get_contents('database/migrations/data.sql'));
+        DB::unprepared(file_get_contents(base_path('database/migrations/data.sql')));
+
+        return 0;
     }
 }

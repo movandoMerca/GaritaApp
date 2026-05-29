@@ -63,6 +63,17 @@ fi
 
 echo "APP_KEY is configured."
 
+if [ -n "$DB_HOST" ] && [ -n "$DB_DATABASE" ] && [ -n "$DB_USERNAME" ]; then
+    TABLE_COUNT="$(mysql --ssl=0 -h"$DB_HOST" -P"${DB_PORT:-3306}" -u"$DB_USERNAME" -p"$DB_PASSWORD" -N -B -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB_DATABASE';" 2>/dev/null || echo "0")"
+
+    if [ "$TABLE_COUNT" = "0" ]; then
+        echo "Database is empty. Running php artisan import:data..."
+        php artisan import:data
+    else
+        echo "Database already has tables. Skipping import:data."
+    fi
+fi
+
 php artisan storage:link --force || true
 php artisan config:cache
 php artisan route:cache
