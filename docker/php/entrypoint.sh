@@ -30,6 +30,16 @@ if [ -n "$DB_HOST" ]; then
     done
 fi
 
+if [ -n "$MYSQL_ROOT_PASSWORD" ] && [ -n "$DB_DATABASE" ] && [ -n "$DB_USERNAME" ] && [ "$DB_USERNAME" != "root" ]; then
+    mysql -h"$DB_HOST" -P"${DB_PORT:-3306}" -uroot -p"$MYSQL_ROOT_PASSWORD" <<-EOSQL
+        CREATE DATABASE IF NOT EXISTS \`$DB_DATABASE\`;
+        CREATE USER IF NOT EXISTS '$DB_USERNAME'@'%' IDENTIFIED BY '$DB_PASSWORD';
+        ALTER USER '$DB_USERNAME'@'%' IDENTIFIED BY '$DB_PASSWORD';
+        GRANT ALL PRIVILEGES ON \`$DB_DATABASE\`.* TO '$DB_USERNAME'@'%';
+        FLUSH PRIVILEGES;
+EOSQL
+fi
+
 if [ -z "$APP_KEY" ] && [ -f .env ]; then
     APP_KEY="$(grep -E '^APP_KEY=' .env | tail -n 1 | cut -d '=' -f2- | tr -d '\r')"
     export APP_KEY
