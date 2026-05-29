@@ -12,9 +12,11 @@ services:
       DB_PORT: 3306
       LOG_CHANNEL: stderr
       AWS_EC2_METADATA_DISABLED: "true"
+      PUBLIC_ASSETS_PATH: /var/www/public-assets
     volumes:
       - app_storage:/var/www/html/storage
       - app_cache:/var/www/html/bootstrap/cache
+      - public_assets:/var/www/public-assets
     depends_on:
       mysql:
         condition: service_healthy
@@ -28,6 +30,7 @@ services:
     ports:
       - "${APP_PORT:-8080}:80"
     volumes:
+      - public_assets:/var/www/html/public:ro
       - app_storage:/var/www/html/storage:ro
     depends_on:
       - app
@@ -62,3 +65,4 @@ volumes:
   mysql_data:
   app_storage:
   app_cache:
+  public_assets:

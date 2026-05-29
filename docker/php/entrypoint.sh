@@ -13,6 +13,15 @@ mkdir -p \
 
 chown -R www-data:www-data storage bootstrap/cache
 
+if [ -n "$PUBLIC_ASSETS_PATH" ]; then
+    mkdir -p "$PUBLIC_ASSETS_PATH"
+    cp -a public/. "$PUBLIC_ASSETS_PATH"/
+    rm -rf "$PUBLIC_ASSETS_PATH/storage"
+    ln -s /var/www/html/storage/app/public "$PUBLIC_ASSETS_PATH/storage"
+    chown -R www-data:www-data "$PUBLIC_ASSETS_PATH"
+    echo "Public assets synchronized."
+fi
+
 if [ ! -f .env ] && [ -f .env.example ]; then
     cp .env.example .env
 fi
