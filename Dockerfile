@@ -13,7 +13,7 @@ WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --prefer-dist --no-interaction --no-progress --no-scripts
 
-FROM php:8.2-fpm-alpine
+FROM php:8.2-fpm-alpine AS app
 
 RUN apk add --no-cache \
         freetype-dev \
@@ -41,3 +41,12 @@ RUN sed -i 's/\r$//' /usr/local/bin/garita-entrypoint \
 
 ENTRYPOINT ["/usr/local/bin/garita-entrypoint"]
 CMD ["php-fpm"]
+
+FROM nginx:1.25-alpine AS web
+
+COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY --from=app /var/www/html/public /var/www/html/public
+
+RUN mkdir -p /var/www/html/storage/app/public \
+    && rm -rf /var/www/html/public/storage \
+    && ln -s /var/www/html/storage/app/public /var/www/html/public/storage
