@@ -2,6 +2,11 @@
 /public/storage
 /public/plugins/*
 !/public/plugins/
+!/public/plugins/global/
+!/public/plugins/global/**
+!/public/plugins/custom/
+!/public/plugins/custom/prismjs/
+!/public/plugins/custom/prismjs/**
 !/public/plugins/flaticon/
 !/public/plugins/flaticon/**
 !/public/plugins/flaticon2/
