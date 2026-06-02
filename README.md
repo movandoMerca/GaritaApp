@@ -1,44 +1,73 @@
 # GaritaApp
 
-Aplicacion Laravel 8 preparada para correr en Docker con PHP 8.2, Nginx, MySQL 8.0 y almacenamiento de imagenes en S3 por carpeta de garita.
+Aplicacion Laravel 8 preparada para desarrollo con Docker: PHP 8.2 FPM, Nginx y MySQL 8.0.
 
-## Docker local
+## Arranque rapido
 
-1. Copia el archivo de entorno:
-
-```bash
-cp .env.docker.example .env
-```
-
-2. Configura los valores reales de `APP_KEY`, `APP_URL`, credenciales de MySQL y credenciales S3. Si `APP_KEY` queda vacio, el contenedor genera una clave en el primer arranque.
-
-3. Levanta todo el sistema:
+El archivo `.env` es opcional para el primer arranque. Si no existe, el contenedor lo crea desde `.env.docker.example` y genera `APP_KEY` si esta vacio.
 
 ```bash
 docker compose up -d --build
 ```
 
-La app queda disponible en `http://localhost:${APP_PORT}`. Por defecto usa `http://localhost:8080`.
+La aplicacion queda disponible en `http://localhost:8080` por defecto. Para cambiar el puerto, copia el entorno y ajusta `APP_PORT` y `APP_URL`:
+
+```bash
+cp .env.docker.example .env
+```
+
+```env
+APP_PORT=8081
+APP_URL=http://localhost:8081
+```
 
 ## Base de datos
 
-El servicio `mysql` importa automaticamente `database/migrations/data.sql` solo cuando el volumen `mysql_data` esta vacio. No se ejecutan migraciones Laravel automaticamente porque el esquema base depende del dump SQL.
+MySQL no se expone al host. El servicio `app` espera a MySQL y ejecuta `php artisan import:data` solo cuando la base configurada no tiene tablas. Si la base ya contiene tablas, omite la importacion.
 
-Para reiniciar completamente la base local:
+Importacion manual:
+
+```bash
+docker compose exec app php artisan import:data
+```
+
+Reset completo de una instancia:
 
 ```bash
 docker compose down -v
 docker compose up -d --build
 ```
 
+## Multiples instancias en una VPS
+
+Cada instancia debe vivir en una carpeta distinta. Docker Compose crea redes y volumenes separados por proyecto/carpeta, siempre que no se definan `container_name`.
+
+Ejemplo:
+
+```text
+/srv/garita-a/.env  APP_PORT=8081  APP_URL=http://IP_VPS:8081  GARITA_FOLDER=garita-a
+/srv/garita-b/.env  APP_PORT=8082  APP_URL=http://IP_VPS:8082  GARITA_FOLDER=garita-b
+```
+
+En cada carpeta:
+
+```bash
+docker compose up -d --build
+```
+
+`DB_DATABASE` puede repetirse entre carpetas porque cada instancia tiene su propio contenedor y volumen MySQL. Si varias instancias usan el mismo bucket S3, `GARITA_FOLDER` debe ser unico por instancia.
+
+## Assets
+
+Docker no compila assets ni ejecuta comandos npm. La aplicacion usa los archivos ya versionados en `public/`.
+
+No ejecutes `npm run development`, `npm run watch-poll` ni `npm run production` como parte del arranque Docker si no quieres sobrescribir `public/css/app.css` o `public/js/app.js`.
+
+Si en el futuro necesitas cambiar frontend, hazlo en una rama separada y revisa explicitamente los cambios generados en `public/` antes de desplegar.
+
 ## S3 por garita
 
-Todas las imagenes usan los discos Laravel existentes:
-
-- `public`: brand y logo.
-- `visits`: fotos de licencia, placa y visitante.
-
-Cuando `IMAGE_STORAGE_DRIVER=s3`, ambos discos guardan en el mismo bucket usando `GARITA_FOLDER` como prefijo:
+Cuando `IMAGE_STORAGE_DRIVER=s3`, los discos `public` y `visits` guardan en el mismo bucket usando `GARITA_FOLDER` como prefijo:
 
 ```env
 IMAGE_STORAGE_DRIVER=s3
@@ -51,46 +80,20 @@ AWS_URL=
 AWS_ENDPOINT=
 ```
 
-Rutas esperadas en S3:
+Rutas esperadas:
 
-- `garita-001/public/<archivo>`
-- `garita-001/visits/<archivo>`
-
-Los objetos pueden permanecer privados porque la aplicacion los sirve por rutas Laravel.
-
-## Produccion
-
-El stack expone HTTP. Para HTTPS, usar un proxy externo como Nginx Proxy Manager, Cloudflare, ALB o un reverse proxy del servidor.
-
-Valores recomendados en produccion:
-
-```env
-APP_ENV=production
-APP_DEBUG=false
-APP_URL=https://tu-dominio.com
-APP_PORT=8080
-DB_HOST=mysql
-IMAGE_STORAGE_DRIVER=s3
-GARITA_FOLDER=nombre-de-la-garita
+```text
+garita-001/public/<archivo>
+garita-001/visits/<archivo>
 ```
 
 ## Verificacion
 
-Comandos utiles:
-
 ```bash
+docker compose config
 docker compose ps
 docker compose logs -f app
-docker compose logs -f web
-docker compose exec app php artisan config:cache
-docker compose exec app php artisan route:cache
-docker compose exec app php artisan view:cache
-```
-
-Healthcheck:
-
-```bash
 curl http://localhost:8080/healthz
 ```
 
-Debe responder `ok`.
+El healthcheck debe responder `ok`.

@@ -9,28 +9,31 @@ mkdir -p \
     storage/framework/sessions \
     storage/framework/views \
     storage/logs \
-    bootstrap/cache
+    bootstrap/cache \
+    vendor
 
-chown -R www-data:www-data storage bootstrap/cache
-
-if [ -n "$PUBLIC_ASSETS_PATH" ]; then
-    mkdir -p "$PUBLIC_ASSETS_PATH"
-    cp -a public/. "$PUBLIC_ASSETS_PATH"/
-    rm -rf "$PUBLIC_ASSETS_PATH/storage"
-    ln -s /var/www/html/storage/app/public "$PUBLIC_ASSETS_PATH/storage"
-    chown -R www-data:www-data "$PUBLIC_ASSETS_PATH"
-    echo "Public assets synchronized."
+if [ ! -f vendor/autoload.php ]; then
+    if [ -d /opt/garita/vendor ]; then
+        echo "Installing vendor from image cache..."
+        cp -a /opt/garita/vendor/. vendor/
+    else
+        echo "Installing vendor with composer..."
+        composer install --prefer-dist --no-interaction --no-progress
+    fi
 fi
 
-if [ ! -f .env ] && [ -f .env.example ]; then
-    cp .env.example .env
+chown -R www-data:www-data storage bootstrap/cache vendor 2>/dev/null || true
+
+if [ ! -f .env ] && [ -f .env.docker.example ]; then
+    cp .env.docker.example .env
 fi
 
 if [ -f .env ]; then
     sed -i 's/\r$//' .env
 fi
 
-rm -f bootstrap/cache/config.php bootstrap/cache/routes-v7.php bootstrap/cache/services.php bootstrap/cache/packages.php
+rm -f bootstrap/cache/config.php bootstrap/cache/routes-v7.php bootstrap/cache/routes.php bootstrap/cache/services.php bootstrap/cache/packages.php
+find storage/framework/cache storage/framework/views -type f -delete 2>/dev/null || true
 
 if [ -n "$DB_HOST" ]; then
     until mysqladmin --ssl=0 ping -h"$DB_HOST" -P"${DB_PORT:-3306}" --silent; do
@@ -73,7 +76,8 @@ fi
 echo "APP_KEY is configured."
 
 if [ -n "$DB_HOST" ] && [ -n "$DB_DATABASE" ] && [ -n "$DB_USERNAME" ]; then
-    TABLE_COUNT="$(mysql --ssl=0 -h"$DB_HOST" -P"${DB_PORT:-3306}" -u"$DB_USERNAME" -p"$DB_PASSWORD" -N -B -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB_DATABASE';" 2>/dev/null || echo "0")"
+    TABLE_COUNT="$(mysql --ssl=0 -h"$DB_HOST" -P"${DB_PORT:-3306}" -u"$DB_USERNAME" -p"$DB_PASSWORD" -N -B -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB_DATABASE';" 2>/dev/null || true)"
+    TABLE_COUNT="${TABLE_COUNT:-0}"
 
     if [ "$TABLE_COUNT" = "0" ]; then
         echo "Database is empty. Running php artisan import:data..."
@@ -83,9 +87,6 @@ if [ -n "$DB_HOST" ] && [ -n "$DB_DATABASE" ] && [ -n "$DB_USERNAME" ]; then
     fi
 fi
 
-php artisan storage:link --force || true
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
+php artisan package:discover --ansi || true
 
 exec "$@"

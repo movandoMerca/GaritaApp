@@ -1,52 +1,46 @@
-FROM node:22-alpine AS assets
-WORKDIR /app
-COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --ignore-scripts; fi
-COPY resources ./resources
-COPY webpack.mix.js ./
-RUN mkdir -p public \
-    && npm run production \
-    && if [ ! -f public/mix-manifest.json ]; then printf '{}\n' > public/mix-manifest.json; fi
-
-FROM composer:2.8 AS composer
-WORKDIR /app
-COPY composer.json composer.lock ./
-RUN composer install --no-dev --prefer-dist --no-interaction --no-progress --no-scripts
-
 FROM php:8.2-fpm-alpine AS app
 
+COPY --from=composer:2.8 /usr/bin/composer /usr/bin/composer
+
 RUN apk add --no-cache \
+        bash \
         freetype-dev \
+        git \
+        icu-dev \
         libjpeg-turbo-dev \
         libpng-dev \
+        libxml2-dev \
         libzip-dev \
         mariadb-client \
+        oniguruma-dev \
         unzip \
+        zip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j"$(nproc)" gd opcache pdo_mysql zip
+    && docker-php-ext-install -j"$(nproc)" \
+        bcmath \
+        dom \
+        exif \
+        gd \
+        intl \
+        mbstring \
+        opcache \
+        pcntl \
+        pdo_mysql \
+        zip
 
 WORKDIR /var/www/html
 
-COPY --chown=www-data:www-data . .
-COPY --from=composer --chown=www-data:www-data /app/vendor ./vendor
-COPY --from=assets --chown=www-data:www-data /app/public/css ./public/css
-COPY --from=assets --chown=www-data:www-data /app/public/js ./public/js
-COPY --from=assets --chown=www-data:www-data /app/public/mix-manifest.json ./public/mix-manifest.json
+COPY composer.json composer.lock /tmp/garita-composer/
+RUN cd /tmp/garita-composer \
+    && composer install --prefer-dist --no-interaction --no-progress --no-scripts \
+    && mkdir -p /opt/garita \
+    && cp -a vendor /opt/garita/vendor \
+    && rm -rf /tmp/garita-composer
+
 COPY docker/php/entrypoint.sh /usr/local/bin/garita-entrypoint
 
 RUN sed -i 's/\r$//' /usr/local/bin/garita-entrypoint \
-    && chmod +x /usr/local/bin/garita-entrypoint \
-    && mkdir -p storage/app/public storage/app/visits storage/configuracion/datos storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
-    && chown -R www-data:www-data storage bootstrap/cache
+    && chmod +x /usr/local/bin/garita-entrypoint
 
 ENTRYPOINT ["/usr/local/bin/garita-entrypoint"]
 CMD ["php-fpm"]
-
-FROM nginx:1.25-alpine AS web
-
-COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
-COPY --from=app /var/www/html/public /var/www/html/public
-
-RUN mkdir -p /var/www/html/storage/app/public \
-    && rm -rf /var/www/html/public/storage \
-    && ln -s /var/www/html/storage/app/public /var/www/html/public/storage
