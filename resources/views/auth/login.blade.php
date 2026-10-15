@@ -75,10 +75,23 @@
                                         style="padding-right: 3.75rem;" placeholder="Contraseña" name="password" required
                                         autocomplete="current-password">
                                     <button id="toggle-password" type="button"
-                                        class="btn btn-sm text-white position-absolute p-2"
-                                        style="right: .75rem; top: 50%; transform: translateY(-50%); z-index: 2;"
+                                        class="position-absolute p-0"
+                                        style="right: .75rem; top: 50%; transform: translateY(-50%); z-index: 3; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: #fff; background: transparent; border: 0; cursor: pointer;"
                                         aria-label="Mostrar contraseña" aria-pressed="false" title="Mostrar contraseña">
-                                        <i class="fa fa-eye" aria-hidden="true"></i>
+                                        <svg id="password-eye-show" width="21" height="21" viewBox="0 0 24 24"
+                                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path>
+                                            <circle cx="12" cy="12" r="3"></circle>
+                                        </svg>
+                                        <svg id="password-eye-hide" width="21" height="21" viewBox="0 0 24 24"
+                                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round" aria-hidden="true" style="display: none;">
+                                            <path d="M3 3l18 18"></path>
+                                            <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"></path>
+                                            <path d="M9.9 5.1A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7a16.6 16.6 0 0 1-4.1 4.9"></path>
+                                            <path d="M6.6 6.6C3.6 8.2 2 12 2 12s3.6 7 10 7a10 10 0 0 0 2-.2"></path>
+                                        </svg>
                                     </button>
                                 </div>
 
@@ -193,9 +206,10 @@
         (() => {
             const password = document.getElementById('password');
             const toggle = document.getElementById('toggle-password');
-            const icon = toggle ? toggle.querySelector('i') : null;
+            const showIcon = document.getElementById('password-eye-show');
+            const hideIcon = document.getElementById('password-eye-hide');
 
-            if (!password || !toggle || !icon) return;
+            if (!password || !toggle || !showIcon || !hideIcon) return;
 
             toggle.addEventListener('click', () => {
                 const showPassword = password.type === 'password';
@@ -205,8 +219,8 @@
                 toggle.setAttribute('aria-label', label);
                 toggle.setAttribute('title', label);
                 toggle.setAttribute('aria-pressed', String(showPassword));
-                icon.classList.toggle('fa-eye', !showPassword);
-                icon.classList.toggle('fa-eye-slash', showPassword);
+                showIcon.style.display = showPassword ? 'none' : 'block';
+                hideIcon.style.display = showPassword ? 'block' : 'none';
             });
         })();
     </script>
