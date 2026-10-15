@@ -105,6 +105,27 @@
                                     <div class="symbol symbol-60 symbol-2by3 flex-shrink-0 mr-4">
                                         <span class="switch switch-outline switch-icon switch-primary">
                                             <label>
+                                                <input type="checkbox" name="enable_visita_peatonal" id="enable_visita_peatonal"
+                                                    @if (($config->enable_visita_peatonal ?? 1) == 1) checked @endif>
+                                                <span></span>
+                                            </label>
+                                        </span>
+                                    </div>
+                                    <div class="d-flex flex-column flex-grow-1 my-lg-0 my-2 pr-3">
+                                        <span class="text-dark-75 font-weight-bolder font-size-lg">Visita peatonal</span>
+                                        <span class="text-primary font-weight-bold font-size-sm my-1">Sección: Visitas</span>
+                                        <span class="text-muted font-weight-bold font-size-sm">Permite registrar visitas peatonales con DPI</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="d-flex flex-wrap align-items-center mb-10">
+                                    <div class="symbol symbol-60 symbol-2by3 flex-shrink-0 mr-4">
+                                        <span class="switch switch-outline switch-icon switch-primary">
+                                            <label>
                                                 <input type="checkbox" name="enable_fotoplaca" id="enable_fotoplaca" @if (($config->enable_fotoplaca ?? 1) == 1)
                                                     checked
                                                 @endif>

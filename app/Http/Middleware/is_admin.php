@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\config as AppConfig;
 use Closure;
 use Illuminate\Http\Request;
 
@@ -28,6 +29,13 @@ class is_admin
                     'new-tab' => false,
                 ],
                 [
+                    'title' => 'Visita peatonal',
+                    'root' => true,
+                    'icon' => 'fa fa-walking',
+                    'page' => 'visit/pedestrian/create',
+                    'new-tab' => false,
+                ],
+                [
                     'title' => 'Visitas del día',
                     'root' => true,
                     'icon' => 'media/svg/icons/Home/Clock.svg', // or can be 'flaticon-home' or any flaticon-*
@@ -48,6 +56,13 @@ class is_admin
                     'root' => true,
                     'icon' => 'media/svg/icons/Design/Layers.svg', // or can be 'flaticon-home' or any flaticon-*
                     'page' => '/',
+                    'new-tab' => false,
+                ],
+                [
+                    'title' => 'Visita peatonal',
+                    'root' => true,
+                    'icon' => 'fa fa-walking',
+                    'page' => 'visit/pedestrian/create',
                     'new-tab' => false,
                 ],
                 [
@@ -147,6 +162,13 @@ class is_admin
                     'new-tab' => false,
                 ],
                 [
+                    'title' => 'Visita peatonal',
+                    'root' => true,
+                    'icon' => 'fa fa-walking',
+                    'page' => 'visit/pedestrian/create',
+                    'new-tab' => false,
+                ],
+                [
                     'title' => 'Visitas del día',
                     'root' => true,
                     'icon' => 'media/svg/icons/Home/Clock.svg', // or can be 'flaticon-home' or any flaticon-*
@@ -240,9 +262,22 @@ class is_admin
             ]
         
         ];
-        
-        
-        
+
+        $settings = AppConfig::find(1);
+        if ((int) ($settings->enable_visita_peatonal ?? 1) !== 1) {
+            $hidePedestrianEntry = function (array $menu) {
+                $menu['items'] = array_values(array_filter($menu['items'], function ($item) {
+                    return ($item['page'] ?? null) !== 'visit/pedestrian/create';
+                }));
+
+                return $menu;
+            };
+
+            $user = $hidePedestrianEntry($user);
+            $admin = $hidePedestrianEntry($admin);
+            $superuser = $hidePedestrianEntry($superuser);
+        }
+
             if(auth()->check() && auth()->user()->is_admin == 1){
 
                 config(['menu_aside' => $admin]);

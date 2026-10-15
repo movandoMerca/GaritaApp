@@ -3,6 +3,7 @@
 use App\Http\Controllers\ResidentController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VisitController;
+use App\Http\Controllers\PedestrianVisitController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\superadminController;
 use App\Http\Controllers\LogController;
@@ -60,6 +61,9 @@ Route::prefix('users')->group(function () {
 
 Route::prefix('visit')->group(function () {
 
+    Route::get('pedestrian/create', [PedestrianVisitController::class, 'create'])->name('create.pedestrian.visits')->middleware('auth');
+    Route::post('pedestrian/save', [PedestrianVisitController::class, 'save'])->name('save.pedestrian.visits')->middleware('auth');
+
     Route::get('create', [VisitController::class, 'create'])->name('create.visits')->middleware('auth');
     Route::get('index', [VisitController::class, 'index'])->name('index.visits')->middleware('auth');
     Route::get('detail', [VisitController::class, 'detail'])->name('detail.visits')->middleware('auth');
@@ -74,6 +78,7 @@ Route::prefix('visit')->group(function () {
     Route::get('table/{from}/{to}/pdf', [VisitController::class, 'tablePdf'])->name('tablepdf.visits')->middleware('auth');
     Route::post('saveimg', [VisitController::class, 'saveimg'])->name('saveimg.visits')->middleware('auth');
     Route::get('detailvisit/{id}', [VisitController::class, 'detailvisit'])->name('detailv.visits')->middleware('auth');
+    Route::get('imagen', [VisitController::class, 'get_img'])->name('img.visits.query')->middleware('auth');
     Route::get('/imagen/{filename}', [VisitController::class, 'get_img'])->name('img.visits')->middleware('auth');
     Route::post('savelicencia', [VisitController::class, 'img_camara'])->name('saveimgcamara.visits')->middleware('auth');
     Route::get('create/licencia/{id}', [VisitController::class, 'take_picture_L'])->name('takephotoL.visits')->middleware('auth');

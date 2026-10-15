@@ -7,10 +7,13 @@
     <div class="card card-custom gutter-b border custom-b">
         <div class="card-header flex-wrap border-0 pt-6 pb-0 custom-bg ">
             <div class="card-title">
-                <h2 class="card-label text-white">Visitas Pendiente de Ingreso</h2>
+                <h2 class="card-label text-white">Visitas activas</h2>
             </div>
         </div>
         <div class="card-body">
+            <form method="GET" action="{{ url()->current() }}">
+                @include('visits._filters', ['submit' => true])
+            </form>
             <!--begin: Datatable-->
             <div class="row">
                 <div class="col-md-12">
@@ -21,7 +24,9 @@
                                 <th>Ingreso</th>
                                 <th>Egreso</th>
                                 <th>Cono</th>
-                                <th>Tipo</th>
+                                <th>Tipo de visita</th>
+                                <th>Repartidor</th>
+                                <th>Tipo de licencia</th>
                                 <th>DPI</th>
                                 <th>Visitante</th>
                                 <th>Fecha de Nacimiento</th>
@@ -47,7 +52,9 @@
                                 <td>{{ $visit->fechaingreso }}</td>
                                 <td>{{ $visit->fechaegreso }}</td>
                                 <td>{{ $visit->cono }}</td>
-                                <td>{{ $visit->tipoLicencia }}</td>
+                                <td>{{ $visit->isPedestrian() ? 'Peatonal' : 'Vehicular' }}</td>
+                                <td>{{ $visit->es_repartidor ? 'Sí' : 'No' }}</td>
+                                <td>{{ $visit->tipoLicencia ?: '—' }}</td>
                                 <td>{{ $visit->cui}}</td>
                                 <td>{{ $visit->Primer_Nombre }} {{ $visit->Segundo_Nombre }} {{ $visit->Primer_Apellido }} {{ $visit->Segundo_Apellido }}</td>
                                 <td>{{ $visit->Fecha_nac }}</td>
@@ -77,36 +84,6 @@
 
 @section('scripts')
     <script>
-        var table = $('#visitreport_today');
-
-                // begin first table
-                table.DataTable({
-                    scrollX: true,
-                    columns: [
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": true }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-                        { "searchable": false }, // column 2 (searchable)
-
-                    ]
-
-                });
-
-                $('#search-input').on('keyup', function() {
-        var columnIndex = 3; // El índice de la columna en la que desea realizar la búsqueda (en este ejemplo, la segunda columna tiene un índice de 1)
-        var searchTerm = $(this).val();
-
-        table.column(columnIndex).search(searchTerm).draw();
-    });
+        $('#visitreport_today').DataTable({ scrollX: true, order: [[1, 'desc']], language: { url: @json(asset('vendor/datatables/Spanish.json')) } });
     </script>
 @endsection

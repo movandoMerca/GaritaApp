@@ -114,17 +114,24 @@
                     <td>{{ $visit->fechaegreso ?: 'Pendiente' }}</td>
                 </tr>
                 <tr>
+                    <th>Tipo de visita</th><td>{{ $visit->isPedestrian() ? 'Peatonal' : 'Vehicular' }}</td>
+                    <th>Repartidor</th><td>{{ $visit->es_repartidor ? 'Sí' : 'No' }}</td>
+                </tr>
+                @if (!$visit->isPedestrian())
+                <tr>
                     <th>Tipo licencia</th>
                     <td>{{ $visit->tipoLicencia }}</td>
                     <th>Documento</th>
                     <td>{{ $visit->numeroDocumento }}</td>
                 </tr>
+                @endif
                 <tr>
                     <th>DPI / CUI</th>
                     <td>{{ $visit->cui }}</td>
-                    <th>Fecha vencimiento</th>
-                    <td>{{ $visit->Fecha_vencimiento }}</td>
+                    <th>{{ $visit->isPedestrian() ? 'Fecha nacimiento' : 'Fecha vencimiento' }}</th>
+                    <td>{{ $visit->isPedestrian() ? $visit->Fecha_nac : $visit->Fecha_vencimiento }}</td>
                 </tr>
+                @if (!$visit->isPedestrian())
                 <tr>
                     <th>Fecha nacimiento</th>
                     <td>{{ $visit->Fecha_nac }}</td>
@@ -137,6 +144,7 @@
                     <th>Cono</th>
                     <td>{{ $visit->cono }}</td>
                 </tr>
+                @endif
                 <tr>
                     <th>Residente</th>
                     <td>{{ optional($visit->residente)->Codigo }} - {{ optional($visit->residente)->Nombres }} {{ optional($visit->residente)->Apellidos }}</td>
@@ -159,7 +167,7 @@
 
             <table class="photo-table">
                 <tr>
-                    @if ($config->enable_fotovisitante == 1)
+                    @if (!$visit->isPedestrian() && $config->enable_fotovisitante == 1)
                         <td>
                             <span class="photo-label">Visitante</span>
                             @if ($photos[$visit->id]['visitante'])
@@ -169,17 +177,17 @@
                             @endif
                         </td>
                     @endif
-                    @if ($config->enable_fotolicencia == 1)
+                    @if ($visit->isPedestrian() || $config->enable_fotolicencia == 1)
                         <td>
-                            <span class="photo-label">Licencia</span>
+                            <span class="photo-label">{{ $visit->isPedestrian() ? 'DPI' : 'Licencia' }}</span>
                             @if ($photos[$visit->id]['licencia'])
-                                <img class="photo" src="{{ $photos[$visit->id]['licencia'] }}" alt="Licencia">
+                                <img class="photo" src="{{ $photos[$visit->id]['licencia'] }}" alt="{{ $visit->isPedestrian() ? 'DPI' : 'Licencia' }}">
                             @else
                                 <span class="empty">Sin foto</span>
                             @endif
                         </td>
                     @endif
-                    @if (($config->enable_fotoplaca ?? 1) == 1)
+                    @if (!$visit->isPedestrian() && ($config->enable_fotoplaca ?? 1) == 1)
                         <td>
                             <span class="photo-label">Placa</span>
                             @if ($photos[$visit->id]['placa'])

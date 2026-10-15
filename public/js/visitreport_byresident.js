@@ -21,25 +21,29 @@ var tabla = $('#visitreport_byresident').DataTable(
         ],
         "pageLength": 10,
         "order": [
-            [1, 'dec'],
+            [1, 'desc'],
             [2, 'asc']
         ],
         scrollX: true,
         "language": {
-            "url": "//cdn.datatables.net/plug-ins/1.10.16/i18n/Spanish.json"
+            "url": $('#visitreport_byresident').attr('data-language-url')
         },
         dom: 'lBfrtip',
         buttons: [
             {
-                extend: 'excel',
+                extend: 'excelHtml5',
+                className: 'btn btn-sm btn-light-primary mr-2',
+                exportOptions: { columns: ':not(:first-child)' },
                 title: 'Reporte de Visitas ' + output
             },
             {
-                extend: 'pdf',
+                extend: 'pdfHtml5',
+                className: 'btn btn-sm btn-light-primary mr-2',
+                exportOptions: { columns: ':not(:first-child)' },
                 title: 'Reporte de Visitas ' + output,
                 orientation: 'landscape',
                 customize: function ( doc ) {
-                    doc.content.splice( 1, 0, {
+                    if (foto) doc.content.splice( 1, 0, {
                         margin: [ 10, 10, 10, 10 ],
                         alignment: 'center',
                         image: 'data:image/png;base64,'+foto 

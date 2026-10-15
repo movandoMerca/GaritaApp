@@ -27,12 +27,13 @@ class VisitController extends Controller
         return view('reports.reportbydateform', compact('page_title', 'page_description'));
     }
 
-    public function table($from, $to)
+    public function table(Request $request, $from, $to)
     {
 
-        $to = $to . ' 23:59';
+        $filters = Visit::validatedFilters($request);
+        $to = $to . ' 23:59:59';
 
-        $visits = visit::with('residente')->whereBetween('fechaingreso', [$from, $to])->get();
+        $visits = Visit::with('residente')->filterVisits($filters)->whereBetween('fechaingreso', [$from, $to])->get();
         $page_title = 'Visitas';
         $page_description = 'Reporte por Fechas';
 
@@ -47,11 +48,13 @@ class VisitController extends Controller
         return view('reports.reportbydate', compact('page_title', 'page_description', 'visits', 'config', 'image'));
     }
 
-    public function tablePdf($from, $to)
+    public function tablePdf(Request $request, $from, $to)
     {
-        $toDateTime = $to . ' 23:59';
+        $filters = Visit::validatedFilters($request);
+        $toDateTime = $to . ' 23:59:59';
 
         $visits = Visit::with('residente')
+            ->filterVisits($filters)
             ->whereBetween('fechaingreso', [$from, $toDateTime])
             ->orderBy('fechaingreso', 'asc')
             ->get();
@@ -111,10 +114,11 @@ class VisitController extends Controller
     }
 
 
-    public function tablebyresident($from, $to, $id)
+    public function tablebyresident(Request $request, $from, $to, $id)
     {
-        $to = $to . ' 23:59';
-        $visits = visit::whereBetween('fechaingreso', [$from, $to])->where('residente_id', $id)->get();
+        $filters = Visit::validatedFilters($request);
+        $to = $to . ' 23:59:59';
+        $visits = Visit::with('residente')->filterVisits($filters)->whereBetween('fechaingreso', [$from, $to])->where('residente_id', $id)->get();
         $config = config::find(1);
         $image = $this->base64BrandImage($config ? $config->path_brand : null);
         $page_title = 'Visitas';
@@ -128,9 +132,10 @@ class VisitController extends Controller
         return view('reports.reportbyresident', compact('page_title', 'page_description', 'visits', 'config', 'image'));
     }
 
-    public function detail()
+    public function detail(Request $request)
     {
-        $visits = visit::whereNull('fechaegreso')->get();
+        $filters = Visit::validatedFilters($request);
+        $visits = Visit::with('residente')->filterVisits($filters)->whereNull('fechaegreso')->get();
         $config = config::find(1);
         $page_title = 'Visitas';
         $page_description = 'Vistantes activos';
@@ -171,8 +176,10 @@ class VisitController extends Controller
         $rules = [
             'placa' => 'required',
             'cono' => 'required',
-            'tokens' => 'required',
+            'tokens' => $request->filled('nombreManual') ? 'nullable|array' : 'required|array|size:11',
             'residente' => 'required',
+            'nombreManual' => 'nullable|string|max:30',
+            'es_repartidor' => 'sometimes|boolean',
         ];
 
         if ($enableFotoLicencia) {
@@ -213,6 +220,9 @@ class VisitController extends Controller
             $visit->residente_id = $id_residente;
             $visit->Placa = $placa;
             $visit->Primer_Nombre = $nombreManual;
+            $visit->Primer_Apellido = '';
+            $visit->cui = '';
+            $visit->Fecha_nac = '';
             $visit->fechaingreso = date("Y-m-d H:i:s");
             $visit->created_by = auth()->user()->id;
         } else {
@@ -235,6 +245,9 @@ class VisitController extends Controller
             $visit->created_by = auth()->user()->id;
 
         }
+
+        $visit->tipo_visita = 'vehicular';
+        $visit->es_repartidor = $request->boolean('es_repartidor');
 
         if ($visit->save()) {
 
@@ -274,6 +287,7 @@ class VisitController extends Controller
 
     public function reportebydate(Request $request)
     {
+        $filters = Visit::validatedFilters($request);
         $request->validate([
             'from' => 'required',
             'to' => 'required',
@@ -282,11 +296,12 @@ class VisitController extends Controller
         $from = $request->input('from');
         $to = $request->input('to');
 
-        return redirect()->route('table.visits', ['from' => $from, 'to' => $to]);
+        return redirect()->route('table.visits', array_merge(['from' => $from, 'to' => $to], $filters));
     }
 
     public function reportebyresi(Request $request)
     {
+        $filters = Visit::validatedFilters($request);
 
 
         $request->validate([
@@ -300,7 +315,7 @@ class VisitController extends Controller
         $to = $request->input('to');
         $id = $request->input('selectResidente');
 
-        return redirect()->route('tablebyresident.visits', ['from' => $from, 'to' => $to, 'id' => $id]);
+        return redirect()->route('tablebyresident.visits', array_merge(['from' => $from, 'to' => $to, 'id' => $id], $filters));
     }
 
     public function reportbyresidentform()
@@ -389,14 +404,37 @@ class VisitController extends Controller
     }
 
 
-    public function get_img($filename)
+    public function get_img(Request $request, $filename = null)
     {
-        if (!$filename || !Storage::disk('visits')->exists($filename)) {
+        $filename = $filename ?? $request->query('filename');
+
+        if (!is_string($filename) || trim($filename) === '' ||
+            str_starts_with($filename, '/') || str_contains($filename, '\\') ||
+            preg_match('/[\x00-\x1F\x7F]/', $filename)) {
             abort(404);
         }
 
-        $file = Storage::disk('visits')->get($filename);
-        return new Response($file, 200, ['Content-Type' => 'image/png']);
+        foreach (explode('/', $filename) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                abort(404);
+            }
+        }
+
+        $disk = Storage::disk('visits');
+        if (!$disk->exists($filename)) {
+            abort(404);
+        }
+
+        $file = $disk->get($filename);
+        $imageInfo = @getimagesizefromstring($file);
+        if (!$imageInfo || empty($imageInfo['mime'])) {
+            abort(404);
+        }
+
+        return new Response($file, 200, [
+            'Content-Type' => $imageInfo['mime'],
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function img_camara(Request $request)
@@ -503,9 +541,14 @@ class VisitController extends Controller
         return view('visits.visit_fotoPlaca', compact('page_title', 'page_description', 'visit'));
     }
 
-    public function egreso()
+    public function egreso(Request $request)
     {
-        $visit = Visit::find($_POST['id']);
+        $request->validate(['id' => 'required|integer|exists:visitas,id']);
+        $visit = Visit::findOrFail($request->input('id'));
+
+        if ($visit->fechaegreso !== null) {
+            return redirect()->route('detailegreso.visits', ['id' => $visit->id]);
+        }
 
         $visit->fechaegreso = date("Y-m-d H:i:s");
         $visit->updated_by = auth()->user()->id;

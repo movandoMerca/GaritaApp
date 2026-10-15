@@ -12,16 +12,21 @@
         </div>
     </div>
     <div class="card-body">
+            <form method="GET" action="{{ url()->current() }}">
+                @include('visits._filters', ['submit' => true])
+            </form>
         <!--begin: Datatable-->
         <div class="row">
             <div class="col-md-12">
-                <table class="table table-bordered nowrap text-center" style="" id="visitreport_byresident">
+                <table class="table table-bordered nowrap text-center" style="" id="visitreport_byresident" data-language-url="{{ asset('vendor/datatables/Spanish.json') }}">
                     <thead>
                         <tr>
                             <th></th>
                             <th>Ingreso</th>
                             @if ($config->enable_egreso==1)<th>Egreso</th>@endif
-                            <th>Tipo</th>
+                            <th>Tipo de visita</th>
+                                <th>Repartidor</th>
+                                <th>Tipo de licencia</th>
                             <th>DPI</th>
                             <th>Visitante</th>
                             <th>Fecha de Nacimiento</th>
@@ -47,7 +52,9 @@
                             </td>
                             <td>{{ $visit->fechaingreso }}</td>
                             @if ($config->enable_egreso==1)<td>{{ $visit->fechaegreso }}</td>@endif
-                            <td>{{ $visit->tipoLicencia }}</td>
+                            <td>{{ $visit->isPedestrian() ? 'Peatonal' : 'Vehicular' }}</td>
+                                <td>{{ $visit->es_repartidor ? 'Sí' : 'No' }}</td>
+                                <td>{{ $visit->tipoLicencia ?: '—' }}</td>
                             <td>{{ $visit->cui}}</td>
                             <td>{{ $visit->Primer_Nombre }} {{ $visit->Segundo_Nombre }} {{ $visit->Primer_Apellido }} {{ $visit->Segundo_Apellido }}</td>
                             <td>{{ $visit->Fecha_nac }}</td>
@@ -76,6 +83,7 @@
 @endsection
 
 @section('scripts')
+    @include('reports._export_scripts')
     <script src="{{ asset('js/visitreport_byresident.js') }}">
     </script>
 @endsection

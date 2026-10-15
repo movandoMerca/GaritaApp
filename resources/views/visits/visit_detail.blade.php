@@ -10,7 +10,7 @@
                         <div class="symbol symbol-circle symbol-100 symbol-lg-100">
                             @if ($config->enable_fotovisitante == 1)
                                 @if ($visits->path_visitante != null)
-                                    <br> <img src="{{ route('img.visits', $visits->path_visitante) }}" alt="">
+                                    <br> <img src="{{ route('img.visits.query', ['filename' => $visits->path_visitante], false) }}" alt="">
                                 @endif
                             @endif
                         </div>
@@ -27,12 +27,21 @@
                 <hr><br>
                 <div class="row text-center">
                     <div class="col-md">
+                        <span class="d-block font-weight-bold mb-2">Tipo de visita</span>
+                        <span>{{ $visits->isPedestrian() ? 'Peatonal' : 'Vehicular' }}</span>
+                    </div>
+                    <div class="col-md">
+                        <span class="d-block font-weight-bold mb-2">Repartidor</span>
+                        <span>{{ $visits->es_repartidor ? 'Sí' : 'No' }}</span>
+                    </div>
+                    @if (!$visits->isPedestrian())
+                    <div class="col-md">
                         <span class="d-block font-weight-bold mb-2">Placa</span>
                         <span
                             class="btn btn-light-warning btn-sm font-weight-bold btn-upper btn-text">{{ $visits->Placa }}</span>
                     </div>
                     <div class="col-md">
-                        <span class="d-block font-weight-bold mb-2">Tipo</span>
+                        <span class="d-block font-weight-bold mb-2">Tipo de licencia</span>
                         <span
                             class="btn btn-light-primary btn-sm font-weight-bold btn-upper btn-text">{{ $visits->tipoLicencia }}</span>
                     </div>
@@ -46,6 +55,7 @@
                         <span
                             class="btn btn-light-primary btn-sm font-weight-bold btn-upper btn-text">{{ $visits->Fecha_vencimiento }}</span>
                     </div>
+                    @endif
                     <div class="col-md">
                         <span class="d-block font-weight-bold mb-2">Ingreso</span>
                         <span
@@ -72,8 +82,8 @@
                             @endif
                         @endif
 
-                        <br> <span class=" font-weight-bold">Cono: {{ $visits->cono }}<label
-                                class="text-primary"></label></span>
+                        @if (!$visits->isPedestrian())<br> <span class=" font-weight-bold">Cono: {{ $visits->cono }}<label
+                                class="text-primary"></label></span>@endif
 
                     </div>
                 </div><br>
@@ -83,21 +93,21 @@
                     @if ($config->enable_fotovisitante == 1 && $visits->path_visitante != null)
                         <div class="col-md-4 mb-5">
                             <span class="d-block font-weight-bold mb-3">Visitante</span>
-                            <img src="{{ route('img.visits', $visits->path_visitante) }}" alt="Foto del visitante"
+                            <img src="{{ route('img.visits.query', ['filename' => $visits->path_visitante], false) }}" alt="Foto del visitante"
                                 style="max-width: 350px; width: 100%;">
                         </div>
                     @endif
-                    @if ($config->enable_fotolicencia == 1 && $visits->path_licencia != null)
+                    @if (($visits->isPedestrian() || $config->enable_fotolicencia == 1) && $visits->path_licencia != null)
                         <div class="col-md-4 mb-5">
-                            <span class="d-block font-weight-bold mb-3">Licencia</span>
-                            <img src="{{ route('img.visits', $visits->path_licencia) }}" alt="Foto de licencia"
+                            <span class="d-block font-weight-bold mb-3">{{ $visits->isPedestrian() ? 'DPI' : 'Licencia' }}</span>
+                            <img src="{{ route('img.visits.query', ['filename' => $visits->path_licencia], false) }}" alt="{{ $visits->isPedestrian() ? 'Foto del DPI' : 'Foto de licencia' }}"
                                 style="max-width: 350px; width: 100%;">
                         </div>
                     @endif
                     @if (($config->enable_fotoplaca ?? 1) == 1 && $visits->path_placa != null)
                         <div class="col-md-4 mb-5">
                             <span class="d-block font-weight-bold mb-3">Placa</span>
-                            <img src="{{ route('img.visits', $visits->path_placa) }}" alt="Foto de placa"
+                            <img src="{{ route('img.visits.query', ['filename' => $visits->path_placa], false) }}" alt="Foto de placa"
                                 style="max-width: 350px; width: 100%;">
                         </div>
                     @endif
@@ -105,7 +115,7 @@
      
                 <div class="row text-center">
                     <div class="col-md-12 ">
-                        <a href="{{ route('create.visits') }}"
+                        <a href="{{ route($visits->isPedestrian() && ($config->enable_visita_peatonal ?? 1) == 1 ? 'create.pedestrian.visits' : 'create.visits') }}"
                             class="btn btn-sm btn-light-primary font-weight-bolder text-uppercase mr-2">
                             Aceptar</a>
 

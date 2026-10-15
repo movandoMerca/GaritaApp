@@ -68,11 +68,19 @@
 
 
 
-                            <div class="form-group ">
-
-                                <input id="password" type="password"
-                                    class="form-control h-auto text-white placeholder-white opacity-90 bg-dark-o-70 rounded-pill border-0 py-4 px-8 mb-5 @error('password') is-invalid @enderror"
-                                    placeholder="Contraseña" name="password" required autocomplete="current-password">
+                            <div class="form-group">
+                                <div class="position-relative mb-5">
+                                    <input id="password" type="password"
+                                        class="form-control h-auto text-white placeholder-white opacity-90 bg-dark-o-70 rounded-pill border-0 py-4 px-8 @error('password') is-invalid @enderror"
+                                        style="padding-right: 3.75rem;" placeholder="Contraseña" name="password" required
+                                        autocomplete="current-password">
+                                    <button id="toggle-password" type="button"
+                                        class="btn btn-sm text-white position-absolute p-2"
+                                        style="right: .75rem; top: 50%; transform: translateY(-50%); z-index: 2;"
+                                        aria-label="Mostrar contraseña" aria-pressed="false" title="Mostrar contraseña">
+                                        <i class="fa fa-eye" aria-hidden="true"></i>
+                                    </button>
+                                </div>
 
                                 @error('password')
                                     <span class="invalid-feedback" role="alert">
@@ -181,6 +189,27 @@
     <!--end::Global Theme Bundle-->
     <!--begin::Page Scripts(used by this page)-->
     <script src="{{ asset('js/pages/custom/login/login-general.js') }}"></script>
+    <script>
+        (() => {
+            const password = document.getElementById('password');
+            const toggle = document.getElementById('toggle-password');
+            const icon = toggle ? toggle.querySelector('i') : null;
+
+            if (!password || !toggle || !icon) return;
+
+            toggle.addEventListener('click', () => {
+                const showPassword = password.type === 'password';
+                const label = showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña';
+
+                password.type = showPassword ? 'text' : 'password';
+                toggle.setAttribute('aria-label', label);
+                toggle.setAttribute('title', label);
+                toggle.setAttribute('aria-pressed', String(showPassword));
+                icon.classList.toggle('fa-eye', !showPassword);
+                icon.classList.toggle('fa-eye-slash', showPassword);
+            });
+        })();
+    </script>
 
 
 </body>

@@ -16,6 +16,7 @@
 
             <form action="{{ route("reportbyresi.visits") }}" method="POST"  >
                 @csrf
+            @include('visits._filters')
             <div class="row">
                 <div class="col-md-4">
                     <label>Residente</label>

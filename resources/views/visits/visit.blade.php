@@ -8,7 +8,7 @@
     <!-- for live demo page -->
 @endsection
 @section('content')
-    <form class="form">
+    <form class="form" id="vehicle-visit-form">
         <div class="card">
             <div class="card card-custom  gutter-b">
                 <div class="card-body">
@@ -121,6 +121,15 @@
                                                     <input id="cono" type="text" class="form-control input-sm" />
                                                 </div>
                                             </div>
+                                        </div>
+                                        <div class="form-group mt-4">
+                                            <label for="es_repartidor">Es repartidor</label>
+                                            <span class="switch switch-sm switch-icon">
+                                                <label>
+                                                    <input type="checkbox" id="es_repartidor" role="switch" aria-label="Es repartidor">
+                                                    <span></span>
+                                                </label>
+                                            </span>
                                         </div><br>
                                         <div class="row">
                                             <div class="col-md-12">
@@ -249,6 +258,7 @@
 @endsection
 
 @section('scripts')
+    <script>$('#vehicle-visit-form').on('submit', function (event) { event.preventDefault(); });</script>
     <script>
         console.log(navigator.mediaDevices.enumerateDevices());
     </script>
@@ -264,6 +274,7 @@
 
     <script>
         (async () => {
+            window.photo1 = window.photo2 = window.photo3 = undefined;
             const enabledPhotos = {
                 licencia: @json($config->enable_fotolicencia == 1),
                 placa: @json(($config->enable_fotoplaca ?? 1) == 1),
@@ -284,6 +295,7 @@
             };
 
             if (!enabledRoles.length) {
+                document.getElementById('capture-btn').hidden = true;
                 return;
             }
 
@@ -350,7 +362,6 @@
             await Promise.all(enabledRoles.map(openStream));
 
             const captureBtn = document.getElementById('capture-btn');
-            window.photo1 = window.photo2 = window.photo3 = undefined;
 
             captureBtn.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -559,6 +570,7 @@
                     placa: placa,
                     tokens: tokenizer,
                     cono: cono,
+                    es_repartidor: $('#es_repartidor').is(':checked') ? 1 : 0,
                     nombreManual:nombreManual,
                     photo1: photo1,
                     photo2: photo2,

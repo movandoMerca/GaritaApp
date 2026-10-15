@@ -100,6 +100,8 @@ class superadminController extends Controller
                         $config->enable_webcam = 0;
                 }
 
+                $config->enable_visita_peatonal = $request->boolean('enable_visita_peatonal') ? 1 : 0;
+
 
 
                 if($config->save()){

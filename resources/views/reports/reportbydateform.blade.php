@@ -15,6 +15,7 @@
         <div class="card-body">
             <form action="{{ route('reportbydate.visits') }}" method="POST"  >
                 @csrf
+            @include('visits._filters')
             <div class="row">
                 <div class="col-md-6">
                     <label for="fechai">Fecha Inicial</label>

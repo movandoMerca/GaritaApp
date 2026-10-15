@@ -25,11 +25,25 @@ APP_URL=http://localhost:8081
 
 MySQL no se expone al host. El servicio `app` espera a MySQL y ejecuta `php artisan import:data` solo cuando la base configurada no tiene tablas. Si la base ya contiene tablas, omite la importacion.
 
+Después de esa comprobación, Docker ejecuta `php artisan migrate --force` en cada
+arranque para aplicar únicamente las migraciones pendientes.
+
 Importacion manual:
 
 ```bash
 docker compose exec app php artisan import:data
+docker compose exec app php artisan migrate --force
 ```
+
+En una instalación existente con Laragon, desde la carpeta del proyecto:
+
+```bash
+php artisan migrate
+```
+
+Este comando agrega el tipo de visita y la marca de repartidor conservando las
+visitas anteriores como vehiculares. `import:data` recrea tablas: se utiliza
+solamente para la instalación inicial, nunca para actualizar una base con datos.
 
 Reset completo de una instancia:
 
@@ -97,3 +111,104 @@ curl http://localhost:8080/healthz
 ```
 
 El healthcheck debe responder `ok`.
+
+## Visitas peatonales y repartidores
+
+En **Visita peatonal**, abra la cámara dentro de la página (también admite
+DroidCam en PC) o tome la foto con el teléfono/tablet. Ajuste y gire el DPI si hace falta; luego
+revise nombres, apellidos, CUI y nacimiento, seleccione al residente por nombre
+o código de casa y guarde. Puede repetir la captura o completar los datos
+manualmente si la lectura falla. Se conserva la foto del DPI.
+
+La vista en vivo requiere HTTPS o localhost. Si se abre por HTTP mediante una
+IP local, use **Tomar foto del DPI**; el navegador abrirá la cámara nativa o el
+selector de imágenes y el OCR seguirá ejecutándose en esta página. Tesseract.js
+7.0.0, el modelo de español y Cropper.js 1.6.2 están incluidos en
+`public/vendor`: no se envía el documento a servicios externos ni se requiere
+recompilar assets.
+
+La captura en vivo toma cinco fotogramas y elige el más nítido. Se muestra la
+resolución real de la cámara y del DPI: si DroidCam entrega una imagen pequeña,
+aumente su resolución y acerque la tarjeta al marco. El OCR conserva la imagen
+sin la compresión del archivo de guardado, localiza las secciones por sus
+rótulos y compara lecturas por campo. Hace hasta nueve pasadas, con un límite
+de 30 segundos después de cargar el motor.
+
+**Reintentar lectura** usa la misma foto y respeta los campos editados a mano.
+**Ajustar encuadre** permite recortar, girar y enderezar en pasos de un grado.
+Una foto nueva limpia los datos del DPI anterior y conserva el residente.
+Los campos dudosos o pendientes se señalan en el formulario; una lectura
+parcial no se presenta como completa y permite corregir los datos antes de
+guardar.
+
+Para generar PDF con fotografías PNG, PHP debe tener GD habilitado (Docker ya
+lo incluye). En Laragon configure `upload_max_filesize=8M` y `post_max_size=12M`
+en `php.ini` y reinicie PHP; Docker incluye esos límites. El disco `visits`
+conserva la configuración local/S3 existente.
+
+En el ingreso vehicular, **Es repartidor** identifica ese ingreso. Las visitas
+activas y los reportes por fecha y residente permiten filtrar tipo de visita y
+repartidor; los filtros se conservan al exportar Excel y PDF.
+
+## Pruebas del módulo de visitas
+
+La suite MySQL importa el esquema inicial en una base **descartable** llamada
+`garita_visits_test`. No ejecutarla contra una base con datos que se quieran
+conservar. El nombre de base está fijado y verificado por la suite.
+
+Ejemplo de instancia aislada (puerto local 13316):
+
+```bash
+docker run -d --rm --name garita-visits-test -e MYSQL_ALLOW_EMPTY_PASSWORD=yes -e MYSQL_DATABASE=garita_visits_test -p 127.0.0.1:13316:3306 --tmpfs /var/lib/mysql mysql:8.0
+php vendor/bin/phpunit -c phpunit.visits.xml
+node tests/js/dpi-parser.test.cjs
+docker stop garita-visits-test
+```
+
+Espere a que MySQL esté listo antes de ejecutar PHPUnit. Requiere PHP con
+`pdo_mysql`, GD y las dependencias de Composer. `DB_HOST`, `DB_PORT`,
+`DB_USERNAME` y `DB_PASSWORD` se pueden proporcionar como variables de entorno
+para conectar un contenedor PHP a esa misma base temporal.
+
+La prueba de navegador `tests/browser/pedestrian-visit.cjs` requiere
+`playwright-core` y Chromium instalado. Puede seleccionar WebKit con
+`VISITS_BROWSER=webkit` para probar la captura nativa, el recorte, el OCR local y
+los tamaños de teléfono/tablet. Después de la suite MySQL, sirva la
+aplicación localmente con `APP_ENV=testing`, `DB_DATABASE=garita_visits_test`,
+`DB_HOST=127.0.0.1`, `DB_PORT=13316`, `DB_USERNAME=root`, `DB_PASSWORD=` y
+`IMAGE_STORAGE_DRIVER=local`. Use un servidor separado del de desarrollo, por
+ejemplo `php -S 127.0.0.1:18880 -t public server.php`, y ejecute:
+
+```bash
+node tests/browser/pedestrian-visit.cjs
+```
+
+`VISITS_BASE_URL` permite cambiar la URL local; `PLAYWRIGHT_MODULE` permite
+señalar una instalación externa de Playwright. La prueba utiliza una cámara
+simulada con un documento de prueba, ejecuta el OCR real y crea una visita en la
+base temporal. También prueba correcciones, captura repetida, reintento de
+guardado y permiso de cámara denegado.
+
+La prueba independiente de OCR no requiere Laravel ni MySQL:
+
+```bash
+node tests/browser/dpi-ocr.cjs
+```
+
+Requiere `playwright-core` y Chromium. `PLAYWRIGHT_MODULE` permite usar una
+instalación externa de Playwright y `CHROMIUM_PATH` un ejecutable específico.
+La suite sirve archivos locales temporalmente, ejecuta Tesseract real con
+documentos sintéticos de formatos antiguo y bilingüe, menor resolución,
+desenfoque y desplazamientos. También verifica selección de fotogramas,
+límites de tiempo/pasadas, correcciones manuales, recorte y el contrato de
+guardado mediante respuestas simuladas. No escribe visitas en una base de
+datos y bloquea las solicitudes a servicios externos.
+
+Para validar DroidCam físicamente, realice 20 capturas del mismo DPI con
+pequeñas variaciones de distancia y posición, buena luz y enfoque. Anote la
+resolución y los aciertos antes de corregir cada campo en
+`documentacion/validacion_lectura_dpi.csv` (`1` correcto, `0` incorrecto).
+`obligatorios_correctos` vale `1` solo si primer nombre, primer apellido,
+CUI y nacimiento son correctos. El objetivo es al menos 18 de 20 capturas;
+la tasa por campo es su suma dividida entre 20. Esta medición requiere el
+equipo con DroidCam y es independiente de los resultados sintéticos.

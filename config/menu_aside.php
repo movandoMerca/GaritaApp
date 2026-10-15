@@ -23,6 +23,14 @@ $Menu =  [
         ],
 
 
+                [
+                    'title' => 'Visita peatonal',
+                    'root' => true,
+                    'icon' => 'fa fa-walking',
+                    'page' => 'visit/pedestrian/create',
+                    'new-tab' => false,
+                ],
+
         //General
         [
             'section' => 'General',

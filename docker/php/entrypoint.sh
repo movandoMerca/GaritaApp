@@ -87,6 +87,8 @@ if [ -n "$DB_HOST" ] && [ -n "$DB_DATABASE" ] && [ -n "$DB_USERNAME" ]; then
     fi
 fi
 
+php artisan migrate --force
+
 php artisan package:discover --ansi || true
 
 exec "$@"
