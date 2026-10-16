@@ -172,17 +172,19 @@ class VisitController extends Controller
         $enableFotoLicencia = ($config->enable_fotolicencia ?? 0) == 1;
         $enableFotoPlaca = ($config->enable_fotoplaca ?? 1) == 1;
         $enableFotoVisitante = ($config->enable_fotovisitante ?? 0) == 1;
+        $nombreManual = $request->input('nombreManual');
+        $esIngresoManual = is_string($nombreManual) && trim($nombreManual) !== '';
 
         $rules = [
             'placa' => 'required',
             'cono' => 'required',
-            'tokens' => $request->filled('nombreManual') ? 'nullable|array' : 'required|array|size:11',
+            'tokens' => $esIngresoManual ? 'nullable|array' : 'required|array|size:11',
             'residente' => 'required',
             'nombreManual' => 'nullable|string|max:30',
             'es_repartidor' => 'sometimes|boolean',
         ];
 
-        if ($enableFotoLicencia) {
+        if ($enableFotoLicencia && !$esIngresoManual) {
             $rules['photo1'] = 'required';
         }
 
@@ -212,7 +214,7 @@ class VisitController extends Controller
         $id_residente = $request->input('residente');
         $placa = $request->input('placa');
         $cono = $request->input('cono');
-        $nombreManual = $request->input('nombreManual');
+        $nombreManual = $esIngresoManual ? trim($nombreManual) : '';
 
         if ($nombreManual != '') {
             $visit = new Visit;

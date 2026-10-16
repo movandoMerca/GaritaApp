@@ -62,6 +62,13 @@
                                             </div>
                                             <input type="text" id="data" name="data" class="form-control"
                                                 autofocus />
+                                            <div class="input-group-append">
+                                                <button type="button" id="abrirIngresoManual"
+                                                    class="btn btn-light-primary font-weight-bolder"
+                                                    data-toggle="modal" data-target="#modalimg">
+                                                    Ingreso manual
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -242,7 +249,8 @@
                     <div class="row">
                         <div class="col-sm-12">
                             <span>Nombre del visitante</span>
-                            <input type="text" class=" form-control" id="nombre-manual">
+                            <input type="text" class="form-control" id="nombre-manual" maxlength="30"
+                                autocomplete="off">
                         </div>
                     </div>
 
@@ -265,8 +273,15 @@
     <script>
         $('#guardarManual').click(function (e) {
             e.preventDefault();
-            nombreManual = $('#nombre-manual').val();
-            console.log(nombreManual);
+            const nombre = $('#nombre-manual').val().trim();
+            if (!nombre) {
+                Swal.fire('Nombre requerido', 'Ingrese el nombre del visitante para continuar.', 'warning');
+                $('#nombre-manual').trigger('focus');
+                return;
+            }
+
+            clearVisitorDetails();
+            nombreManual = nombre;
             $('#1nombre').text(nombreManual);
             $('#modalimg').modal('hide');
         });
@@ -378,7 +393,7 @@
                 };
 
                 try {
-                    if (enabledPhotos.licencia) {
+                    if (enabledPhotos.licencia && !nombreManual) {
                         window.photo1 = snap('licencia', 1);
                     }
                     if (enabledPhotos.placa) {
@@ -410,6 +425,18 @@
         var data = "";
         var tokenizer = "";
         var nombreManual = "";
+
+        function clearVisitorDetails() {
+            tokenizer = [];
+            nombreManual = "";
+            $('#nombre-manual').val('');
+            $('#iniciales, #1nombre, #2nombre, #1apellido, #2apellido, #fechanac, #cui, #telefonoEmergencia, #tipo, #ndocument, #fechavec, #horaentrada').empty();
+            $('#icon').prop('hidden', true);
+            $('#ocultar').prop('hidden', false);
+            window.photo1 = undefined;
+            $('#video1').prop('hidden', false);
+            $('#canvas1').prop('hidden', true);
+        }
 
 
         var KTSelect2 = function() {
@@ -447,6 +474,7 @@
 
                 var code = (e.keyCode ? e.keyCode : e.which);
                 if (code == 13) {
+                    clearVisitorDetails();
                     data = $("#data").val();
 
                     $("#data").val("");

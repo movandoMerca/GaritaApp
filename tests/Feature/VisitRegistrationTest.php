@@ -192,6 +192,42 @@ class VisitRegistrationTest extends TestCase
         $this->postJson(route('save.visits'), $this->vehicle(['placa' => '']))->assertUnprocessable()->assertJsonValidationErrors('placa');
     }
 
+    public function test_manual_vehicle_visit_can_skip_license_photo_but_keeps_other_photos_required()
+    {
+        DB::table('config')->where('id', 1)->update([
+            'enable_fotolicencia' => 1,
+            'enable_fotoplaca' => 1,
+            'enable_fotovisitante' => 1,
+        ]);
+
+        $manualVisit = $this->vehicle([
+            'tokens' => null,
+            'nombreManual' => '  Visitante sin licencia  ',
+        ]);
+
+        $invalidManualVisit = $this->postJson(route('save.visits'), $manualVisit);
+        $invalidManualVisit->assertUnprocessable()->assertJsonValidationErrors(['photo2', 'photo3']);
+        $this->assertArrayNotHasKey('photo1', $invalidManualVisit->json('errors'));
+
+        $manualVisit['photo2'] = 'data:image/jpeg;base64,' . base64_encode('placa');
+        $manualVisit['photo3'] = 'data:image/jpeg;base64,' . base64_encode('visitante');
+
+        $this->postJson(route('save.visits'), $manualVisit)->assertOk();
+        $visit = Visit::latest('id')->firstOrFail();
+        $this->assertSame('Visitante sin licencia', $visit->Primer_Nombre);
+        $this->assertNull($visit->path_licencia);
+        Storage::disk('visits')->assertExists($visit->path_placa);
+        Storage::disk('visits')->assertExists($visit->path_visitante);
+
+        $scannedVisit = $this->vehicle([
+            'photo2' => $manualVisit['photo2'],
+            'photo3' => $manualVisit['photo3'],
+        ]);
+        $this->postJson(route('save.visits'), $scannedVisit)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('photo1');
+    }
+
     public function test_filters_reports_exports_and_redirects()
     {
         $this->postJson(route('save.pedestrian.visits'), $this->pedestrian())->assertCreated();
