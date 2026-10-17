@@ -8,12 +8,26 @@
     <!-- for live demo page -->
 @endsection
 @section('content')
-    <form class="form" id="vehicle-visit-form">
+    <form class="form" id="vehicle-visit-form"
+        data-save-url="{{ route('save.visits') }}"
+        data-session-url="{{ route('session.visits') }}"
+        data-resident-url="{{ route('detail_ajax.resident') }}"
+        data-detail-template="{{ route('detailv.visits', ['id' => '__VISIT_ID__']) }}"
+        data-user-id="{{ Auth()->id() }}"
+        data-submission-id="{{ (string) \Illuminate\Support\Str::uuid() }}"
+        data-csrf-token="{{ csrf_token() }}"
+        data-login-url="{{ route('login') }}"
+        data-camera-licencia="{{ Auth()->user()->camara_id_licencia }}"
+        data-camera-placa="{{ Auth()->user()->camara_id_placa }}"
+        data-camera-visitante="{{ Auth()->user()->camara_id_visitante }}"
+        data-photo-licencia="@json($config->enable_fotolicencia == 1)"
+        data-photo-placa="@json(($config->enable_fotoplaca ?? 1) == 1)"
+        data-photo-visitante="@json($config->enable_fotovisitante == 1)">
         <div class="card">
             <div class="card card-custom  gutter-b">
                 <div class="card-body">
                     <div class="container">
-                        <div id="responset"></div>
+                        <div id="responset" role="alert" aria-live="assertive" tabindex="-1" hidden></div>
                         <div class="row">
                             <div class="col-md-2">
                                 <div class="symbol symbol-50 symbol-lg-120 symbol-light-primary">
@@ -60,11 +74,11 @@
                                                     <i class="fas fa-barcode text-white"></i>
                                                 </span>
                                             </div>
-                                            <input type="text" id="data" name="data" class="form-control"
+                                            <input type="text" id="data" name="data" class="form-control visit-input"
                                                 autofocus />
                                             <div class="input-group-append">
                                                 <button type="button" id="abrirIngresoManual"
-                                                    class="btn btn-light-primary font-weight-bolder"
+                                                    class="btn btn-light-primary font-weight-bolder visit-input"
                                                     data-toggle="modal" data-target="#modalimg">
                                                     Ingreso manual
                                                 </button>
@@ -83,7 +97,7 @@
                                                             <i class="fa fa-phone text-white"></i>
                                                         </span>
                                                     </div>
-                                                    <select id="selectResidente" class="form-control p-7">
+                                                    <select id="selectResidente" class="form-control p-7 visit-input">
                                                         <option></option>
                                                         @foreach ($residents as $resident)
                                                             <option value="{{ $resident->id }}">
@@ -114,7 +128,7 @@
                                                             <i class="fas fa-car text-white"></i>
                                                         </span>
                                                     </div>
-                                                    <input id="placa" type="text" class="form-control" />
+                                                    <input id="placa" type="text" maxlength="8" class="form-control visit-input" />
                                                 </div>
                                             </div>
                                             <div class="col-md">
@@ -125,7 +139,7 @@
                                                             <i class="far fa-flag text-white"></i>
                                                         </span>
                                                     </div>
-                                                    <input id="cono" type="text" class="form-control input-sm" />
+                                                    <input id="cono" type="text" maxlength="20" class="form-control input-sm visit-input" />
                                                 </div>
                                             </div>
                                         </div>
@@ -133,7 +147,7 @@
                                             <label for="es_repartidor">Es repartidor</label>
                                             <span class="switch switch-sm switch-icon">
                                                 <label>
-                                                    <input type="checkbox" id="es_repartidor" role="switch" aria-label="Es repartidor">
+                                                    <input type="checkbox" id="es_repartidor" class="visit-input" role="switch" aria-label="Es repartidor">
                                                     <span></span>
                                                 </label>
                                             </span>
@@ -221,15 +235,15 @@
                         </div>
                         <div class="row">
                             <div class="col-sm-12 d-flex justify-content-center">
-                                <button id="capture-btn"
-                                    class="btn btn-sm btn-light-info font-weight-bolder text-uppercase mr-2">Tomar
+                                <button type="button" id="capture-btn"
+                                    class="btn btn-sm btn-light-info font-weight-bolder text-uppercase mr-2 visit-input">Tomar
                                     foto</button>
                             </div>
                         </div>
                         <div class="row">
                             <div class="col-md-12 my-lg-0 my-1 text-right">
-                                <a id="guardar"
-                                    class="btn btn-sm btn-light-primary font-weight-bolder text-uppercase mr-2">Guardar</a>
+                                <button type="submit" id="guardar"
+                                    class="btn btn-sm btn-light-primary font-weight-bolder text-uppercase mr-2">Guardar</button>
                                 <a href="{{ route('home') }}"
                                     class="btn btn-sm btn-light-danger font-weight-bolder text-uppercase"
                                     id="prueba">Cancelar</a>
@@ -249,14 +263,14 @@
                     <div class="row">
                         <div class="col-sm-12">
                             <span>Nombre del visitante</span>
-                            <input type="text" class="form-control" id="nombre-manual" maxlength="30"
+                            <input type="text" class="form-control visit-input" id="nombre-manual" maxlength="30"
                                 autocomplete="off">
                         </div>
                     </div>
 
                     <div class="text-center my-12">
                         <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
-                        <a id="guardarManual" class="btn btn-primary"> Guardar </a>
+                        <button type="button" id="guardarManual" class="btn btn-primary visit-input"> Guardar </button>
                     </div>
 
                 </div>
@@ -266,380 +280,5 @@
 @endsection
 
 @section('scripts')
-    <script>$('#vehicle-visit-form').on('submit', function (event) { event.preventDefault(); });</script>
-    <script>
-        console.log(navigator.mediaDevices.enumerateDevices());
-    </script>
-    <script>
-        $('#guardarManual').click(function (e) {
-            e.preventDefault();
-            const nombre = $('#nombre-manual').val().trim();
-            if (!nombre) {
-                Swal.fire('Nombre requerido', 'Ingrese el nombre del visitante para continuar.', 'warning');
-                $('#nombre-manual').trigger('focus');
-                return;
-            }
-
-            clearVisitorDetails();
-            nombreManual = nombre;
-            $('#1nombre').text(nombreManual);
-            $('#modalimg').modal('hide');
-        });
-    </script>
-
-    <script>
-        (async () => {
-            window.photo1 = window.photo2 = window.photo3 = undefined;
-            const enabledPhotos = {
-                licencia: @json($config->enable_fotolicencia == 1),
-                placa: @json(($config->enable_fotoplaca ?? 1) == 1),
-                visitante: @json($config->enable_fotovisitante == 1),
-            };
-            const enabledRoles = Object.keys(enabledPhotos).filter(role => enabledPhotos[role]);
-
-            const wanted = {
-                licencia: '{!! Auth()->user()->camara_id_licencia !!}',
-                placa: '{!! Auth()->user()->camara_id_placa !!}',
-                visitante: '{!! Auth()->user()->camara_id_visitante !!}',
-            };
-
-            const els = {
-                licencia: { video: document.getElementById('video1'), canvas: document.getElementById('canvas1') },
-                placa: { video: document.getElementById('video2'), canvas: document.getElementById('canvas2') },
-                visitante: { video: document.getElementById('video3'), canvas: document.getElementById('canvas3') },
-            };
-
-            if (!enabledRoles.length) {
-                document.getElementById('capture-btn').hidden = true;
-                return;
-            }
-
-            try {
-                await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-            } catch (e) {
-                console.error('No se pudo obtener permiso de cámara:', e);
-                Swal.fire('Permiso denegado', 'Autoriza el uso de la cámara para seleccionar los dispositivos correctos.', 'error');
-                return;
-            }
-
-            const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
-            const byId = Object.fromEntries(devices.map(d => [d.deviceId, d]));
-            const byLabel = Object.fromEntries(devices.map(d => [d.label, d]));
-
-            const resolveDeviceId = (saved) => {
-                if (!saved) return null;
-                if (byId[saved]) return saved;
-                if (byLabel[saved]) return byLabel[saved].deviceId;
-                const partial = devices.find(d => d.label && d.label.toLowerCase().includes(String(saved).toLowerCase()));
-                return partial ? partial.deviceId : null;
-            };
-
-            const pickOrFallback = (role, usedSet) => {
-                const resolved = resolveDeviceId(wanted[role]);
-                if (resolved && !usedSet.has(resolved)) return resolved;
-                const firstFree = devices.find(d => !usedSet.has(d.deviceId));
-                return firstFree ? firstFree.deviceId : null;
-            };
-
-            const used = new Set();
-            const mapRoleToDeviceId = {};
-            enabledRoles.forEach(role => {
-                const deviceId = pickOrFallback(role, used);
-                mapRoleToDeviceId[role] = deviceId;
-                if (deviceId) used.add(deviceId);
-            });
-
-            const streams = {};
-
-            const openStream = async (role) => {
-                const deviceId = mapRoleToDeviceId[role];
-                const el = els[role].video;
-                if (!deviceId) {
-                    console.warn(`No hay cámara disponible para ${role}`);
-                    Swal.fire('Cámara no encontrada', `No se encontró una cámara para ${role}.`, 'warning');
-                    return;
-                }
-
-                const constraints = { video: { deviceId: { exact: deviceId } }, audio: false };
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    if (streams[role]) streams[role].getTracks().forEach(t => t.stop());
-                    streams[role] = stream;
-                    el.srcObject = stream;
-                    await el.play();
-                    console.log(`[${role}] usando:`, devices.find(d => d.deviceId === deviceId)?.label || deviceId);
-                } catch (err) {
-                    console.error(`Error al abrir cámara de ${role}:`, err);
-                    Swal.fire('Error de cámara', `No se pudo abrir la cámara de ${role}.`, 'error');
-                }
-            };
-
-            await Promise.all(enabledRoles.map(openStream));
-
-            const captureBtn = document.getElementById('capture-btn');
-
-            captureBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-
-                const snap = (role, idx) => {
-                    const video = els[role].video;
-                    const canvas = els[role].canvas;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                    document.getElementById(`video${idx}`).hidden = true;
-                    document.getElementById(`canvas${idx}`).hidden = false;
-                    return dataUrl;
-                };
-
-                try {
-                    if (enabledPhotos.licencia && !nombreManual) {
-                        window.photo1 = snap('licencia', 1);
-                    }
-                    if (enabledPhotos.placa) {
-                        window.photo2 = snap('placa', 2);
-                    }
-                    if (enabledPhotos.visitante) {
-                        window.photo3 = snap('visitante', 3);
-                    }
-                } catch (err) {
-                    console.error('Error al capturar fotos:', err);
-                    Swal.fire('Error', 'No se pudieron capturar las fotos.', 'error');
-                }
-            });
-
-            window.addEventListener('beforeunload', () => {
-                Object.values(streams).forEach(s => s && s.getTracks().forEach(t => t.stop()));
-            });
-
-            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-                console.warn('Recomendado servir por HTTPS para estabilidad de deviceId.');
-            }
-        })();
-    </script>
-
-
-
-
-    <script>
-        var data = "";
-        var tokenizer = "";
-        var nombreManual = "";
-
-        function clearVisitorDetails() {
-            tokenizer = [];
-            nombreManual = "";
-            $('#nombre-manual').val('');
-            $('#iniciales, #1nombre, #2nombre, #1apellido, #2apellido, #fechanac, #cui, #telefonoEmergencia, #tipo, #ndocument, #fechavec, #horaentrada').empty();
-            $('#icon').prop('hidden', true);
-            $('#ocultar').prop('hidden', false);
-            window.photo1 = undefined;
-            $('#video1').prop('hidden', false);
-            $('#canvas1').prop('hidden', true);
-        }
-
-
-        var KTSelect2 = function() {
-            $('#selectResidente').select2({
-                theme: 'bootstrap4',
-
-                placeholder: 'Seleccione numero de casa..',
-                value: 'background-color: red'
-
-            });
-
-            return {
-                init: function() {
-
-                }
-            };
-        }();
-
-        jQuery(document).ready(function() {
-            KTSelect2.init();
-        });
-
-        function splitMulti(str, tokens) {
-            var tempChar = tokens[0]; // We can use the first token as a temporary join character
-            for (var i = 1; i < tokens.length; i++) {
-                str = str.split(tokens[i]).join(tempChar);
-            }
-            str = str.split(tempChar);
-            return str;
-        }
-
-        $(document).ready(function() {
-            $("#data").keypress(function(e) {
-
-
-                var code = (e.keyCode ? e.keyCode : e.which);
-                if (code == 13) {
-                    clearVisitorDetails();
-                    data = $("#data").val();
-
-                    $("#data").val("");
-
-                    var d = new Date();
-
-                    var contador = 0;
-
-                    while (contador <= 219) {
-                        if (isNaN(data.charAt(contador))) {
-                            break;
-                        }
-                        contador = contador + 1;
-                    }
-
-                    tokenizer = splitMulti(data, ['|', ']']);
-
-                    console.log(tokenizer.length);
-                    console.log(tokenizer);
-
-                    if (tokenizer[0].length > 10) {
-                        tokenizer[0] = tokenizer[0].substr(-8, 8);
-                        tokenizer.splice(6, 1);
-                        console.log(tokenizer);
-                    }
-
-                    if (tokenizer.length == 11) {
-                        var iniciales = tokenizer[2].charAt(0) + tokenizer[4].charAt(0);
-                        $("#iniciales").append(iniciales);
-                        $("#1nombre").append(tokenizer[2]);
-                        $("#2nombre").append(tokenizer[3]);
-                        $("#1apellido").append(tokenizer[4]);
-                        $("#2apellido").append(tokenizer[5]);
-                        $("#icon").prop("hidden", false)
-                        $("#fechanac").append(tokenizer[6]);
-                        $("#cui").append(tokenizer[8]);
-                        $("#telefonoEmergencia").append(tokenizer[9]);
-                        $("#tipo").append(tokenizer[1]);
-                        $("#ndocument").append(tokenizer[0]);
-                        $("#fechavec").append(tokenizer[7]);
-                        $("#horaentrada").append(d.toLocaleString());
-                        $("#ocultar").prop("hidden", true);
-
-
-                        // obtener datos del span
-                        // var span_Text = document.getElementById("tipo").innerText;
-
-                    } else {
-
-                        Swal.fire({
-                            title: 'Revisa que hayas escaneado el codigo correcto. ',
-                            showClass: {
-                                popup: 'animate__animated animate__backInDown'
-                            },
-                            hideClass: {
-                                popup: 'animate__animated animate__backOutDown'
-                            }
-                        });
-
-                        $("#modalimg").modal('show');
-
-                    }
-
-
-                }
-            });
-        });
-
-
-
-        $('#selectResidente').on('change', function(e) {
-
-            var id_residente = $('#selectResidente').val();
-
-
-            $.ajax({
-                format: 'json',
-                type: 'GET',
-                headers: {
-                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                },
-                url: '{{ route('detail_ajax.resident') }}',
-                data: {
-                    id: id_residente
-                },
-                success: function(data) {
-
-                    var datos = JSON.parse(data);
-
-                    $('#ftelefono').val(datos['Codigo']);
-                    $('#direccion').val(datos['Direccion']);
-
-
-                }
-
-            });
-
-        });
-
-
-
-        $("#guardar").click(function() {
-
-            $('#responset').empty()
-                .removeAttr('class');
-
-            console.log(tokenizer)
-            var id_residente = $('#selectResidente').val();
-            var placa = $('#placa').val();
-            var cono = $('#cono').val();
-
-            $.ajax({
-                format: 'json',
-                type: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                },
-                url: '{{ route('save.visits') }}',
-                data: {
-                    residente: id_residente,
-                    placa: placa,
-                    tokens: tokenizer,
-                    cono: cono,
-                    es_repartidor: $('#es_repartidor').is(':checked') ? 1 : 0,
-                    nombreManual:nombreManual,
-                    photo1: photo1,
-                    photo2: photo2,
-                    photo3: photo3,
-                },
-                success: function(data) {
-
-                    datas = JSON.parse(data);
-                    console.log(datas);
-                    $("#idv").val(datas['id']);
-
-                    window.location.replace("/visit/detailvisit/" + datas['id']);
-
-
-
-                },
-                error: function(data) {
-                    if (data.status === 422) {
-                        var errors = $.parseJSON(data.responseText);
-                        $.each(errors, function(key, value) {
-                            // console.log(key+ " " +value);
-                            $('#responset').addClass("alert alert-danger");
-
-                            if ($.isPlainObject(value)) {
-                                $.each(value, function(key, value) {
-                                    $('#responset').show().append(value + "<br/>");
-
-                                });
-                            } else {
-                                $('#responset').show().append(value +
-                                    "<br/>"); //this is my div with messages
-                            }
-                        });
-                    }
-                }
-
-            });
-
-        });
-
-        var avatar4 = new KTImageInput('kt_image_4');
-        var avatar5 = new KTImageInput('kt_image_2');
-    </script>
+    <script src="{{ asset('js/vehicle-visit.js') }}"></script>
 @endsection

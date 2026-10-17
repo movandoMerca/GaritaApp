@@ -8,6 +8,7 @@ use App\Models\Visit;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class VisitRegistrationTest extends TestCase
@@ -52,6 +53,13 @@ class VisitRegistrationTest extends TestCase
             'residente' => 1, 'placa' => 'P123ABC', 'cono' => '12',
             'tokens' => ['12345678', 'C', 'JUAN', '', 'PEREZ', '', '01/01/1990', '01/01/2030', '1234567890101', '12345678', ''],
         ], $changes);
+    }
+
+    private function vehiclePhoto(): string
+    {
+        return 'data:image/png;base64,' . base64_encode(base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII='
+        ));
     }
 
     public function test_pedestrian_registration_photo_detail_and_exit()
@@ -192,6 +200,129 @@ class VisitRegistrationTest extends TestCase
         $this->postJson(route('save.visits'), $this->vehicle(['placa' => '']))->assertUnprocessable()->assertJsonValidationErrors('placa');
     }
 
+    public function test_vehicle_submission_id_returns_one_visit_for_repeated_requests()
+    {
+        $submissionId = (string) Str::uuid();
+        $payload = $this->vehicle(['submission_id' => $submissionId]);
+
+        $first = $this->postJson(route('save.visits'), $payload)->assertOk()
+            ->assertJsonStructure(['id', 'redirect_url']);
+        $retry = $this->postJson(route('save.visits'), array_merge($payload, ['placa' => 'P999XYZ']))->assertOk()
+            ->assertJsonStructure(['id', 'redirect_url']);
+
+        $this->assertSame($first->json('id'), $retry->json('id'));
+        $this->assertSame('P123ABC', Visit::findOrFail($first->json('id'))->Placa);
+        $this->assertDatabaseCount('visitas', 1);
+        $this->assertDatabaseCount('logs', 1);
+
+        $newVisit = $this->postJson(route('save.visits'), $this->vehicle(['submission_id' => (string) Str::uuid()]))
+            ->assertOk()->json('id');
+
+        $this->assertNotSame($first->json('id'), $newVisit);
+        $this->assertDatabaseCount('visitas', 2);
+        $this->assertDatabaseCount('logs', 2);
+
+        $otherUser = User::factory()->create(['username' => 'vehicle-retry-agent']);
+        $this->actingAs($otherUser);
+        $this->postJson(route('save.visits'), $payload)->assertStatus(409);
+        $this->assertDatabaseCount('visitas', 2);
+        $this->assertDatabaseCount('logs', 2);
+    }
+
+    public function test_vehicle_registration_keeps_the_previous_response_for_old_forms()
+    {
+        $response = $this->postJson(route('save.visits'), $this->vehicle())->assertOk();
+
+        $this->assertIsString($response->json());
+        $this->assertSame('vehicular', json_decode($response->json(), true)['tipo_visita']);
+        $this->assertDatabaseCount('visitas', 1);
+    }
+
+    public function test_vehicle_registration_requires_an_active_resident_and_schema_safe_values()
+    {
+        DB::table('residentes')->where('id', 1)->update(['estado' => 0]);
+        $this->postJson(route('save.visits'), $this->vehicle())
+            ->assertUnprocessable()->assertJsonValidationErrors('residente');
+
+        DB::table('residentes')->where('id', 1)->update(['estado' => 1]);
+        $this->postJson(route('save.visits'), $this->vehicle(['placa' => '123456789']))
+            ->assertUnprocessable()->assertJsonValidationErrors('placa');
+        $this->postJson(route('save.visits'), $this->vehicle(['tokens' => ['123456789', 'C', 'JUAN', '', 'PEREZ', '', '01/01/1990', '01/01/2030', '1234567890101', '', '']]))
+            ->assertUnprocessable()->assertJsonValidationErrors('tokens.0');
+
+        $this->assertDatabaseCount('visitas', 0);
+        $this->assertDatabaseCount('logs', 0);
+    }
+
+    public function test_session_endpoint_returns_the_current_authenticated_user_and_fresh_csrf_token()
+    {
+        $response = $this->getJson(route('session.visits'))
+            ->assertOk()
+            ->assertJsonStructure(['user_id', 'csrf_token'])
+            ->assertHeader('Cache-Control', 'private, no-store, max-age=0');
+
+        $this->assertSame(1, $response->json('user_id'));
+        $this->assertNotEmpty($response->json('csrf_token'));
+    }
+
+    public function test_vehicle_photo_storage_failure_leaves_no_visit_or_log()
+    {
+        DB::table('config')->where('id', 1)->update([
+            'enable_fotoplaca' => 1,
+            'enable_fotovisitante' => 1,
+        ]);
+        $fakeDisk = Storage::disk('visits');
+        $disk = \Mockery::mock(\Illuminate\Filesystem\FilesystemAdapter::class);
+        $writes = 0;
+        $disk->shouldReceive('put')->twice()->andReturnUsing(function ($path, $contents) use (&$writes, $fakeDisk) {
+            $writes++;
+
+            return $writes === 1 ? $fakeDisk->put($path, $contents) : false;
+        });
+        $disk->shouldReceive('delete')->twice()->andReturnUsing(function ($path) use ($fakeDisk) {
+            return $fakeDisk->delete($path);
+        });
+        $configDisk = Storage::disk('config');
+        Storage::shouldReceive('disk')->with('config')->andReturn($configDisk);
+        Storage::shouldReceive('disk')->with('visits')->andReturn($disk);
+
+        $this->postJson(route('save.visits'), $this->vehicle([
+            'photo2' => $this->vehiclePhoto(),
+            'photo3' => $this->vehiclePhoto(),
+        ]))
+            ->assertStatus(503)->assertJsonPath('outcome', 'not_saved');
+        $this->assertDatabaseCount('visitas', 0);
+        $this->assertDatabaseCount('logs', 0);
+        $this->assertSame([], $fakeDisk->allFiles());
+    }
+
+    public function test_vehicle_registration_rejects_malformed_photo_data_before_storing()
+    {
+        DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
+
+        $this->postJson(route('save.visits'), $this->vehicle(['photo2' => 'data:image/png;base64,bm90LWltYWdl']))
+            ->assertUnprocessable()->assertJsonValidationErrors('photo2');
+
+        $this->assertDatabaseCount('visitas', 0);
+        $this->assertDatabaseCount('logs', 0);
+        $this->assertSame([], Storage::disk('visits')->allFiles());
+    }
+
+    public function test_vehicle_database_failure_rolls_back_the_log_record_and_uploaded_photos()
+    {
+        DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
+        log::creating(function () { throw new \RuntimeException('Simulated log failure'); });
+        try {
+            $this->postJson(route('save.visits'), $this->vehicle(['photo2' => $this->vehiclePhoto()]))
+                ->assertStatus(503)->assertJsonPath('outcome', 'not_saved');
+            $this->assertDatabaseCount('visitas', 0);
+            $this->assertDatabaseCount('logs', 0);
+            $this->assertSame([], Storage::disk('visits')->allFiles());
+        } finally {
+            log::flushEventListeners();
+        }
+    }
+
     public function test_manual_vehicle_visit_can_skip_license_photo_but_keeps_other_photos_required()
     {
         DB::table('config')->where('id', 1)->update([
@@ -209,8 +340,8 @@ class VisitRegistrationTest extends TestCase
         $invalidManualVisit->assertUnprocessable()->assertJsonValidationErrors(['photo2', 'photo3']);
         $this->assertArrayNotHasKey('photo1', $invalidManualVisit->json('errors'));
 
-        $manualVisit['photo2'] = 'data:image/jpeg;base64,' . base64_encode('placa');
-        $manualVisit['photo3'] = 'data:image/jpeg;base64,' . base64_encode('visitante');
+        $manualVisit['photo2'] = $this->vehiclePhoto();
+        $manualVisit['photo3'] = $this->vehiclePhoto();
 
         $this->postJson(route('save.visits'), $manualVisit)->assertOk();
         $visit = Visit::latest('id')->firstOrFail();

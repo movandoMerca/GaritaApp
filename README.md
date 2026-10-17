@@ -41,8 +41,13 @@ En una instalación existente con Laragon, desde la carpeta del proyecto:
 php artisan migrate
 ```
 
-Este comando agrega el tipo de visita y la marca de repartidor conservando las
-visitas anteriores como vehiculares. `import:data` recrea tablas: se utiliza
+Ejecute las migraciones antes de desplegar la página de registro vehicular y su
+JavaScript actualizado; el formulario necesita la nueva columna para impedir
+visitas duplicadas al reintentar.
+
+Este comando aplica las migraciones pendientes, agrega el tipo de visita y la
+marca de repartidor, y agrega una clave única opcional a cada envío vehicular
+sin modificar las visitas existentes. `import:data` recrea tablas: se utiliza
 solamente para la instalación inicial, nunca para actualizar una base con datos.
 
 Reset completo de una instancia:
@@ -187,7 +192,11 @@ node tests/browser/pedestrian-visit.cjs
 señalar una instalación externa de Playwright. La prueba utiliza una cámara
 simulada con un documento de prueba, ejecuta el OCR real y crea una visita en la
 base temporal. También prueba correcciones, captura repetida, reintento de
-guardado y permiso de cámara denegado.
+guardado, recuperación de sesión y respuesta vehicular perdida después de que
+el servidor confirmó el registro; comprueba que el reintento crea una sola visita.
+Para usar los navegadores instalados, defina `VISITS_BROWSER=chrome` o
+`VISITS_BROWSER=edge`; `chromium` es la opción predeterminada y `webkit` conserva
+las pruebas de captura nativa y diseño adaptable.
 
 La prueba independiente de OCR no requiere Laravel ni MySQL:
 

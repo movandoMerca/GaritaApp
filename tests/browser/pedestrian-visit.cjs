@@ -86,8 +86,12 @@ async function waitForDpiRead(page) {
 }
 
 (async () => {
-    const engine = process.env.VISITS_BROWSER === 'webkit' ? webkit : chromium;
-    const browser = await engine.launch({ headless: true });
+    const selectedBrowser = process.env.VISITS_BROWSER || 'chromium';
+    const engine = selectedBrowser === 'webkit' ? webkit : chromium;
+    const launchOptions = { headless: true };
+    if (selectedBrowser === 'chrome') launchOptions.channel = 'chrome';
+    if (selectedBrowser === 'edge') launchOptions.channel = 'msedge';
+    const browser = await engine.launch(launchOptions);
     try {
         const context = await browser.newContext({ viewport: { width: 1366, height: 1000 } });
         const page = await context.newPage();
@@ -308,16 +312,117 @@ async function waitForDpiRead(page) {
         await page.waitForFunction(() => !document.querySelector('#modalimg').classList.contains('show'));
         await page.click('#abrirIngresoManual');
         await page.click('#guardarManual');
-        await page.locator('.swal2-popup').waitFor();
+        await page.getByText('Ingrese el nombre del visitante para continuar.').waitFor();
         assert.equal(await page.locator('#modalimg').isVisible(), true);
-        await page.click('.swal2-confirm');
         await page.fill('#nombre-manual', 'MANUAL');
+        await page.waitForTimeout(300);
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await page.click('#abrirIngresoManual');
+        assert.equal(await page.inputValue('#nombre-manual'), 'MANUAL');
         await page.click('#guardarManual');
         assert.equal(await page.locator('#1nombre').innerText(), 'MANUAL');
         await Promise.all([page.waitForURL('**/visit/detailvisit/*'), page.click('#guardar')]);
         assert.match(await page.locator('body').innerText(), /MANUAL/);
         assert.match(await page.locator('body').innerText(), /Repartidor\s+Sí/);
         console.log('PASS: vehicle switch persists for scanned and manually entered visitors');
+
+        await page.goto(base + '/visit/create', { waitUntil: 'domcontentloaded' });
+        await page.fill('#placa', 'RTRY001');
+        await page.fill('#cono', '29');
+        await page.selectOption('#selectResidente', '1');
+        await page.fill('#data', code);
+        await page.press('#data', 'Enter');
+        await page.waitForTimeout(300);
+
+        const recoveryPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=';
+        await page.evaluate(photo => {
+            const form = document.querySelector('#vehicle-visit-form');
+            const key = 'garita.vehicle-visit.v1.' + form.dataset.userId;
+            const draft = JSON.parse(sessionStorage.getItem(key));
+            draft.photos.placa = photo;
+            sessionStorage.setItem(key, JSON.stringify(draft));
+        }, recoveryPhoto);
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(() => !document.querySelector('#canvas2').hidden);
+        assert.ok(await page.evaluate(() => window.photo2.startsWith('data:image/png;base64,')));
+
+        await page.route('**/visit/save', route => route.fulfill({
+            status: 503,
+            contentType: 'application/json',
+            body: JSON.stringify({ outcome: 'not_saved', message: 'Fallo simulado antes de confirmar la visita.' })
+        }), { times: 1 });
+        await page.click('#guardar');
+        await page.getByText('Fallo simulado antes de confirmar la visita.').waitFor();
+        assert.equal(await page.locator('#placa').isDisabled(), false, 'a confirmed failure lets the guard correct and retry');
+
+        await page.route('**/visit/save', route => route.fulfill({
+            status: 413,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: 'Request too large' })
+        }), { times: 1 });
+        await page.click('#guardar');
+        await page.getByText(/fotos son demasiado grandes/).waitFor();
+        assert.equal(await page.inputValue('#placa'), 'RTRY001');
+
+        await page.route('**/visit/save', route => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: '{"id":'
+        }), { times: 1 });
+        await page.click('#guardar');
+        await page.getByText(/no confirmó el registro con una respuesta válida/).waitFor();
+        assert.equal(await page.locator('#placa').isDisabled(), true, 'an invalid success response freezes the original payload');
+
+        await page.route('**/visit/session', route => route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ message: 'Unauthenticated.' }) }), { times: 1 });
+        await page.click('#guardar');
+        await page.getByText('Iniciar sesión en otra pestaña').waitFor();
+        assert.equal(await page.inputValue('#placa'), 'RTRY001');
+        assert.equal(await page.locator('#placa').isDisabled(), true, 'session expiry keeps an uncertain payload frozen');
+        assert.equal(await page.locator('#guardar').isEnabled(), true);
+
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        assert.equal(await page.inputValue('#placa'), 'RTRY001');
+        assert.equal(await page.inputValue('#cono'), '29');
+        assert.equal(await page.locator('#1nombre').innerText(), 'JUAN');
+        assert.equal(await page.locator('#placa').isDisabled(), true, 'reload keeps the uncertain payload frozen');
+
+        let vehicleSaves = 0;
+        page.on('request', request => {
+            if (request.method() === 'POST' && new URL(request.url()).pathname === '/visit/save') vehicleSaves++;
+        });
+        await page.route('**/visit/save', async route => {
+            const committed = await route.fetch();
+            assert.equal(committed.status(), 200, 'the simulated lost response follows a successful server save');
+            assert.ok((await committed.json()).id);
+            await route.abort('failed');
+        }, { times: 1 });
+
+        await page.click('#guardar');
+        await page.getByText(/interrumpió la conexión durante el guardado/).waitFor();
+        assert.equal(await page.locator('#placa').isDisabled(), true);
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        assert.equal(await page.inputValue('#placa'), 'RTRY001');
+        assert.equal(await page.locator('#placa').isDisabled(), true);
+        assert.match(await page.locator('#guardar').innerText(), /Verificar \/ reintentar/);
+
+        await Promise.all([page.waitForURL('**/visit/detailvisit/*'), page.click('#guardar')]);
+        assert.equal(vehicleSaves, 2, 'a lost response is retried with the same submission id');
+        await page.goto(base + '/visit/detail', { waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(() => !!$('#visitreport_today').DataTable());
+        const retryRows = await page.evaluate(() => $('#visitreport_today').DataTable().rows().data().toArray()
+            .filter(row => row.some(value => String(value).includes('RTRY001'))).length);
+        assert.equal(retryRows, 1, 'retrying after a lost response creates exactly one vehicle visit');
+
+        await page.goto(base + '/visit/create', { waitUntil: 'domcontentloaded' });
+        await page.fill('#placa', 'CSRF001');
+        await page.fill('#cono', '30');
+        await page.selectOption('#selectResidente', '1');
+        await page.fill('#data', code);
+        await page.press('#data', 'Enter');
+        await page.route('**/visit/save', route => route.fulfill({ status: 419, contentType: 'application/json', body: JSON.stringify({ message: 'CSRF token mismatch.' }) }), { times: 1 });
+        await Promise.all([page.waitForURL('**/visit/detailvisit/*'), page.click('#guardar')]);
+        assert.equal(vehicleSaves, 4, 'one CSRF retry produces exactly one extra POST');
+        console.log('PASS: session expiry, confirmed failures, token refresh and lost responses preserve the draft and prevent duplicate visits');
 
         const today = new Date().toISOString().slice(0, 10);
         await page.goto(base + '/visit/table/' + today + '/' + today + '?tipo_visita=vehicular&es_repartidor=1', { waitUntil: 'domcontentloaded' });

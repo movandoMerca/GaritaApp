@@ -9,6 +9,11 @@ use App\Models\Visit;
 use App\Models\Resident;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log as Logger;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Response;
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -166,6 +171,14 @@ class VisitController extends Controller
         return view('visits.visit', compact('page_title', 'page_description', 'residents', 'config'));
     }
 
+    public function sessionState(Request $request)
+    {
+        return response()->json([
+            'user_id' => $request->user()->getAuthIdentifier(),
+            'csrf_token' => csrf_token(),
+        ])->header('Cache-Control', 'private, no-store, max-age=0');
+    }
+
     public function save(Request $request)
     {
         $config = config::find(1);
@@ -174,35 +187,94 @@ class VisitController extends Controller
         $enableFotoVisitante = ($config->enable_fotovisitante ?? 0) == 1;
         $nombreManual = $request->input('nombreManual');
         $esIngresoManual = is_string($nombreManual) && trim($nombreManual) !== '';
+        $userId = $request->user()->getAuthIdentifier();
+        $submissionId = $request->input('submission_id');
+
+        if (is_string($submissionId) && Str::isUuid($submissionId)) {
+            $existingVisit = Visit::where('submission_id', $submissionId)->first();
+
+            if ($existingVisit) {
+                if ((int) $existingVisit->created_by !== (int) $userId) {
+                    return response()->json(['message' => 'No se pudo verificar este envío. Inicie un nuevo registro.'], 409);
+                }
+
+                return $this->vehicleVisitResponse($existingVisit, false);
+            }
+        }
+
+        $photoBytes = [];
+        $validatePhoto = function ($attribute, $value, $fail) use (&$photoBytes) {
+            if (!is_string($value) || !preg_match('#\Adata:image/(png|jpe?g);base64,([A-Za-z0-9+/]+={0,2})\z#iD', $value, $matches)) {
+                $fail('La foto no es válida. Tómela nuevamente antes de guardar.');
+
+                return;
+            }
+
+            $bytes = base64_decode($matches[2], true);
+            $image = $bytes === false ? false : @getimagesizefromstring($bytes);
+            $expectedMime = strtolower($matches[1]) === 'png' ? 'image/png' : 'image/jpeg';
+
+            if ($image === false || !isset($image['mime']) || $image['mime'] !== $expectedMime) {
+                $fail('La foto no es válida. Tómela nuevamente antes de guardar.');
+
+                return;
+            }
+
+            $photoBytes[$attribute] = [
+                'bytes' => $bytes,
+                'extension' => $expectedMime === 'image/png' ? 'png' : 'jpg',
+            ];
+        };
+
+        $tokenRules = $esIngresoManual ? [] : [
+            'tokens.0' => 'required|string|max:8',
+            'tokens.1' => 'required|string|max:2',
+            'tokens.2' => 'required|string|max:30',
+            'tokens.3' => 'nullable|string|max:70',
+            'tokens.4' => 'required|string|max:45',
+            'tokens.5' => 'nullable|string|max:70',
+            'tokens.6' => 'required|string|max:20',
+            'tokens.7' => 'required|string|max:20',
+            'tokens.8' => 'required|string|max:13',
+            'tokens.9' => 'nullable|string|max:8',
+            'tokens.10' => 'nullable|string|max:20',
+        ];
 
         $rules = [
-            'placa' => 'required',
-            'cono' => 'required',
+            'submission_id' => 'sometimes|required|uuid',
+            'placa' => 'required|string|max:8',
+            'cono' => 'required|string|max:20',
             'tokens' => $esIngresoManual ? 'nullable|array' : 'required|array|size:11',
-            'residente' => 'required',
+            'residente' => ['required', 'integer', Rule::exists('residentes', 'id')->where('estado', '1')],
             'nombreManual' => 'nullable|string|max:30',
             'es_repartidor' => 'sometimes|boolean',
         ];
 
+        $rules += $tokenRules;
+
         if ($enableFotoLicencia && !$esIngresoManual) {
-            $rules['photo1'] = 'required';
+            $rules['photo1'] = ['required', 'string', 'max:6000000', $validatePhoto];
         }
 
         if ($enableFotoPlaca) {
-            $rules['photo2'] = 'required';
+            $rules['photo2'] = ['required', 'string', 'max:6000000', $validatePhoto];
         }
 
         if ($enableFotoVisitante) {
-            $rules['photo3'] = 'required';
+            $rules['photo3'] = ['required', 'string', 'max:6000000', $validatePhoto];
         }
 
         $request->validate(
             $rules,
             [
                 'placa.required' => 'Ingrese la placa del vehículo',
-                'cono.required' => 'Ingrese el número de cono ',
+                'placa.max' => 'La placa no puede superar los 8 caracteres.',
+                'cono.required' => 'Ingrese el número de cono',
+                'cono.max' => 'El número de cono no puede superar los 20 caracteres.',
                 'tokens.required' => 'No escaneó la licencia del visitante',
+                'tokens.size' => 'Vuelva a escanear la licencia antes de guardar.',
                 'residente.required' => 'Seleccione el número de casa',
+                'residente.exists' => 'Seleccione una casa activa.',
                 'photo1.required' => 'Por favor tomar la foto de la licencia',
                 'photo2.required' => 'Por favor tomar la foto de la placa',
                 'photo3.required' => 'Por favor tomar la foto del visitante',
@@ -215,76 +287,130 @@ class VisitController extends Controller
         $placa = $request->input('placa');
         $cono = $request->input('cono');
         $nombreManual = $esIngresoManual ? trim($nombreManual) : '';
+        $disk = null;
+        $storedFiles = [];
 
-        if ($nombreManual != '') {
-            $visit = new Visit;
-            $visit->cono = $cono;
-            $visit->residente_id = $id_residente;
-            $visit->Placa = $placa;
-            $visit->Primer_Nombre = $nombreManual;
-            $visit->Primer_Apellido = '';
-            $visit->cui = '';
-            $visit->Fecha_nac = '';
-            $visit->fechaingreso = date("Y-m-d H:i:s");
-            $visit->created_by = auth()->user()->id;
-        } else {
+        try {
+            $disk = Storage::disk('visits');
+            $photoPaths = [];
+            foreach ([
+                'photo1' => ['enabled' => $enableFotoLicencia && !$esIngresoManual, 'column' => 'path_licencia'],
+                'photo2' => ['enabled' => $enableFotoPlaca, 'column' => 'path_placa'],
+                'photo3' => ['enabled' => $enableFotoVisitante, 'column' => 'path_visitante'],
+            ] as $field => $photo) {
+                if (!$photo['enabled'] || !isset($photoBytes[$field])) {
+                    continue;
+                }
 
-            $visit = new Visit;
-            $visit->cono = $cono;
-            $visit->residente_id = $id_residente;
-            $visit->Placa = $placa;
-            $visit->numeroDocumento = $tokens[0];
-            $visit->tipoLicencia = $tokens[1];
-            $visit->Primer_Nombre = $tokens[2];
-            $visit->Segundo_Nombre = $tokens[3];
-            $visit->Primer_Apellido = $tokens[4];
-            $visit->Segundo_Apellido = $tokens[5];
-            $visit->Fecha_nac = $tokens[6];
-            $visit->Fecha_vencimiento = $tokens[7];
-            $visit->cui = $tokens[8];
-            $visit->tel_emergencia = $tokens[9];
-            $visit->fechaingreso = date("Y-m-d H:i:s");
-            $visit->created_by = auth()->user()->id;
+                $filename = str_replace('photo', 'visit', $field) . '_' . Str::uuid() . '.' . $photoBytes[$field]['extension'];
+                $storedFiles[] = $filename;
+                if (!$disk->put($filename, $photoBytes[$field]['bytes'])) {
+                    throw new \RuntimeException('No se pudo guardar una fotografía de la visita.');
+                }
 
+                $photoPaths[$photo['column']] = $filename;
+            }
+
+            $visit = DB::transaction(function () use ($request, $tokens, $nombreManual, $id_residente, $placa, $cono, $photoPaths, $submissionId, $userId) {
+                $visit = new Visit;
+                $visit->cono = $cono;
+                $visit->residente_id = $id_residente;
+                $visit->Placa = $placa;
+
+                if ($nombreManual !== '') {
+                    $visit->Primer_Nombre = $nombreManual;
+                    $visit->Primer_Apellido = '';
+                    $visit->cui = '';
+                    $visit->Fecha_nac = '';
+                } else {
+                    $visit->numeroDocumento = $tokens[0];
+                    $visit->tipoLicencia = $tokens[1];
+                    $visit->Primer_Nombre = $tokens[2];
+                    $visit->Segundo_Nombre = $tokens[3] ?? null;
+                    $visit->Primer_Apellido = $tokens[4];
+                    $visit->Segundo_Apellido = $tokens[5] ?? null;
+                    $visit->Fecha_nac = $tokens[6];
+                    $visit->Fecha_vencimiento = $tokens[7];
+                    $visit->cui = $tokens[8];
+                    $visit->tel_emergencia = $tokens[9] ?? null;
+                }
+
+                $visit->tipo_visita = 'vehicular';
+                $visit->es_repartidor = $request->boolean('es_repartidor');
+                $visit->fechaingreso = now();
+                $visit->created_by = $userId;
+                $visit->submission_id = $submissionId;
+                foreach ($photoPaths as $column => $path) {
+                    $visit->$column = $path;
+                }
+                if (!$visit->save()) {
+                    throw new \RuntimeException('No se pudo registrar la visita.');
+                }
+
+                $log = new log;
+                $log->user_id = $userId;
+                $log->accion = Str::limit('Ingreso una nueva Visita de ' . $visit->Primer_Nombre . ' ' . $visit->Primer_Apellido
+                    . ' al residente ' . $visit->residente->fullname(false), 200, '');
+                if (!$log->save()) {
+                    throw new \RuntimeException('No se pudo registrar la bitácora.');
+                }
+
+                return $visit;
+            });
+        } catch (Throwable $exception) {
+            foreach ($storedFiles as $filename) {
+                try {
+                    if ($disk) {
+                        if (!$disk->delete($filename)) {
+                            Logger::error('No se pudo limpiar una foto de una visita vehicular fallida.');
+                        }
+                    }
+                } catch (Throwable $cleanupException) {
+                    Logger::error('No se pudo limpiar una foto de una visita vehicular fallida.', [
+                        'exception_type' => get_class($cleanupException),
+                    ]);
+                }
+            }
+
+            if ($submissionId && $exception instanceof QueryException) {
+                try {
+                    $existingVisit = Visit::where('submission_id', $submissionId)->first();
+                    if ($existingVisit && (int) $existingVisit->created_by === (int) $userId) {
+                        return $this->vehicleVisitResponse($existingVisit, false);
+                    }
+                } catch (Throwable $lookupException) {
+                    Logger::error('No se pudo verificar el resultado de un envío vehicular.', [
+                        'exception_type' => get_class($lookupException),
+                    ]);
+                }
+            }
+
+            $context = ['exception_type' => get_class($exception)];
+            if ($exception instanceof QueryException && $exception->errorInfo) {
+                $context['sql_state'] = $exception->errorInfo[0] ?? null;
+                $context['database_code'] = $exception->errorInfo[1] ?? null;
+            }
+            Logger::error('No se pudo guardar una visita vehicular.', $context);
+
+            return response()->json([
+                'message' => 'No se pudo confirmar el guardado. Se conservaron los datos; puede reintentar sin duplicar la visita.',
+                'outcome' => $exception instanceof QueryException ? 'unknown' : 'not_saved',
+            ], 503);
         }
 
-        $visit->tipo_visita = 'vehicular';
-        $visit->es_repartidor = $request->boolean('es_repartidor');
+        return $this->vehicleVisitResponse($visit, !$submissionId);
+    }
 
-        if ($visit->save()) {
-
-            $log = new log;
-            $log->user_id = auth()->user()->id;
-            $log->accion = 'Ingreso una nueva Visita de ' . $visit->Primer_Nombre . ' ' . $visit->Primer_Apellido . ' al residente ' . $visit->residente->fullname(false);
-            $log->save();
-
+    private function vehicleVisitResponse(Visit $visit, bool $legacy)
+    {
+        if ($legacy) {
+            return response()->json(json_encode($visit));
         }
 
-        if ($enableFotoLicencia && $request->input('photo1')) {
-            $photo1_name = uniqid('photo1_') . '.png';
-            $photo1_file = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $request->input('photo1')));
-            Storage::disk('visits')->put($photo1_name, $photo1_file);
-            $visit->path_licencia = $photo1_name;
-        }
-
-        if ($enableFotoPlaca && $request->input('photo2')) {
-            $photo2_name = uniqid('photo2_') . '.png';
-            $photo2_file = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $request->input('photo2')));
-            Storage::disk('visits')->put($photo2_name, $photo2_file);
-            $visit->path_placa = $photo2_name;
-        }
-
-        if ($enableFotoVisitante && $request->input('photo3')) {
-            $photo3_name = uniqid('photo3_') . '.png';
-            $photo3_file = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $request->input('photo3')));
-            Storage::disk('visits')->put($photo3_name, $photo3_file);
-            $visit->path_visitante = $photo3_name;
-        }
-
-        $visit->save();
-
-
-        return response()->json(json_encode($visit));
+        return response()->json([
+            'id' => $visit->id,
+            'redirect_url' => route('detailv.visits', ['id' => $visit->id]),
+        ]);
     }
 
     public function reportebydate(Request $request)
