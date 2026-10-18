@@ -39,6 +39,7 @@ RUN cd /tmp/garita-composer \
 
 COPY docker/php/entrypoint.sh /usr/local/bin/garita-entrypoint
 COPY docker/php/uploads.ini /usr/local/etc/php/conf.d/garita-uploads.ini
+COPY docker/php/zz-garita.conf /usr/local/etc/php-fpm.d/zz-garita.conf
 
 RUN sed -i 's/\r$//' /usr/local/bin/garita-entrypoint \
     && chmod +x /usr/local/bin/garita-entrypoint

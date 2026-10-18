@@ -219,17 +219,17 @@
                         <div class="row">
                             <div class="col-sm-4" @if ($config->enable_fotolicencia != 1) hidden @endif>
                                 <span><b> Licencia </b></span> <br>
-                                <video id="video1" width="320" height="240" autoplay></video>
+                                <video id="video1" width="320" height="240" autoplay muted playsinline></video>
                                 <canvas hidden id="canvas1" width="320" height="240"></canvas>
                             </div>
                             <div class="col-sm-4" @if (($config->enable_fotoplaca ?? 1) != 1) hidden @endif>
                                 <span><b><b>Placa</b></span> <br>
-                                <video id="video2" width="320" height="240" autoplay></video>
+                                <video id="video2" width="320" height="240" autoplay muted playsinline></video>
                                 <canvas hidden id="canvas2" width="320" height="240"></canvas>
                             </div>
                             <div class="col-sm-4" @if ($config->enable_fotovisitante != 1) hidden @endif>
                                 <span><b>Visitante</b></span> <br>
-                                <video id="video3" width="320" height="240" autoplay></video>
+                                <video id="video3" width="320" height="240" autoplay muted playsinline></video>
                                 <canvas hidden id="canvas3" width="320" height="240"></canvas>
                             </div>
                         </div>
@@ -280,5 +280,5 @@
 @endsection
 
 @section('scripts')
-    <script src="{{ asset('js/vehicle-visit.js') }}"></script>
+    <script src="{{ asset('js/vehicle-visit.js') }}?v={{ filemtime(public_path('js/vehicle-visit.js')) }}"></script>
 @endsection

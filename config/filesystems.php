@@ -75,7 +75,11 @@ return [
                 'visibility' => 'public',
             ],
         'visits' => $useS3Images
-            ? array_merge($s3BaseConfig, ['root' => $garitaFolder.'/visits'])
+            ? array_merge($s3BaseConfig, [
+                'root' => $garitaFolder.'/visits',
+                'http' => ['connect_timeout' => 3, 'timeout' => 10],
+                'retries' => 0,
+            ])
             : [
                 'driver' => 'local',
                 'root' => storage_path('app/visits'),

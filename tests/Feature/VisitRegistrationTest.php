@@ -222,11 +222,67 @@ class VisitRegistrationTest extends TestCase
         $this->assertDatabaseCount('visitas', 2);
         $this->assertDatabaseCount('logs', 2);
 
-        $otherUser = User::factory()->create(['username' => 'vehicle-retry-agent']);
+        $otherUser = User::factory()->create(['username' => 'vehicle-retry-agent', 'status' => 1]);
         $this->actingAs($otherUser);
         $this->postJson(route('save.visits'), $payload)->assertStatus(409);
         $this->assertDatabaseCount('visitas', 2);
         $this->assertDatabaseCount('logs', 2);
+    }
+
+    public function test_vehicle_missing_submission_column_returns_a_recoverable_error()
+    {
+        \Illuminate\Support\Facades\Schema::table('visitas', function ($table) {
+            $table->dropUnique(['submission_id']);
+            $table->dropColumn('submission_id');
+        });
+        $this->postJson(route('save.visits'), $this->vehicle(['submission_id' => (string) Str::uuid()]))
+            ->assertStatus(503)->assertJsonPath('outcome', 'unknown')
+            ->assertJsonMissing(['exception' => 'Illuminate\\Database\\QueryException']);
+        $this->assertDatabaseCount('visitas', 0);
+        $this->assertDatabaseCount('logs', 0);
+    }
+
+    public function test_vehicle_commit_acknowledgement_failure_keeps_the_committed_photos()
+    {
+        DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
+        $payload = $this->vehicle(['submission_id' => (string) Str::uuid(), 'photo2' => $this->vehiclePhoto()]);
+        $events = DB::connection()->getEventDispatcher();
+        $events->listen(\Illuminate\Database\Events\TransactionCommitted::class, function () {
+            throw new \RuntimeException('Simulated lost commit acknowledgement');
+        });
+        try {
+            $first = $this->postJson(route('save.visits'), $payload)->assertOk();
+        } finally {
+            $events->forget(\Illuminate\Database\Events\TransactionCommitted::class);
+        }
+        $visit = Visit::findOrFail($first->json('id'));
+        Storage::disk('visits')->assertExists($visit->path_placa);
+        $this->postJson(route('save.visits'), $payload)->assertOk()->assertJsonPath('id', $visit->id);
+        $this->assertDatabaseCount('visitas', 1);
+        $this->assertDatabaseCount('logs', 1);
+        $this->assertCount(1, Storage::disk('visits')->allFiles());
+    }
+
+    public function test_vehicle_unverifiable_commit_retains_files_until_a_retry_can_confirm_it()
+    {
+        DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
+        $payload = $this->vehicle(['submission_id' => (string) Str::uuid(), 'photo2' => $this->vehiclePhoto()]);
+        $events = DB::connection()->getEventDispatcher();
+        $events->listen(\Illuminate\Database\Events\TransactionCommitted::class, function () {
+            Visit::retrieved(function () { throw new \RuntimeException('Verification connection unavailable'); });
+            throw new \RuntimeException('Simulated lost commit acknowledgement');
+        });
+        try {
+            $this->postJson(route('save.visits'), $payload)->assertStatus(503)->assertJsonPath('outcome', 'unknown');
+        } finally {
+            $events->forget(\Illuminate\Database\Events\TransactionCommitted::class);
+            Visit::flushEventListeners();
+        }
+        $visit = Visit::where('submission_id', $payload['submission_id'])->firstOrFail();
+        Storage::disk('visits')->assertExists($visit->path_placa);
+        $this->postJson(route('save.visits'), $payload)->assertOk()->assertJsonPath('id', $visit->id);
+        $this->assertDatabaseCount('visitas', 1);
+        $this->assertDatabaseCount('logs', 1);
     }
 
     public function test_vehicle_registration_keeps_the_previous_response_for_old_forms()
@@ -258,8 +314,10 @@ class VisitRegistrationTest extends TestCase
     {
         $response = $this->getJson(route('session.visits'))
             ->assertOk()
-            ->assertJsonStructure(['user_id', 'csrf_token'])
-            ->assertHeader('Cache-Control', 'private, no-store, max-age=0');
+            ->assertJsonStructure(['user_id', 'csrf_token']);
+        foreach (['private', 'no-store', 'max-age'] as $directive) {
+            $this->assertTrue($response->headers->hasCacheControlDirective($directive));
+        }
 
         $this->assertSame(1, $response->json('user_id'));
         $this->assertNotEmpty($response->json('csrf_token'));
@@ -294,6 +352,47 @@ class VisitRegistrationTest extends TestCase
         $this->assertDatabaseCount('visitas', 0);
         $this->assertDatabaseCount('logs', 0);
         $this->assertSame([], $fakeDisk->allFiles());
+    }
+
+    public function test_vehicle_s3_failure_uses_bounded_sdk_options_without_internal_retries()
+    {
+        $values = [
+            'IMAGE_STORAGE_DRIVER' => 's3', 'GARITA_FOLDER' => 'synthetic-test',
+            'AWS_ACCESS_KEY_ID' => 'synthetic', 'AWS_SECRET_ACCESS_KEY' => 'synthetic',
+            'AWS_DEFAULT_REGION' => 'us-east-1', 'AWS_BUCKET' => 'synthetic-test',
+        ];
+        $previous = [];
+        foreach ($values as $name => $value) {
+            $previous[$name] = [$_ENV[$name] ?? null, $_SERVER[$name] ?? null];
+            $_ENV[$name] = $_SERVER[$name] = $value;
+        }
+        try {
+            $settings = require config_path('filesystems.php');
+        } finally {
+            foreach ($previous as $name => [$env, $server]) {
+                if ($env === null) unset($_ENV[$name]); else $_ENV[$name] = $env;
+                if ($server === null) unset($_SERVER[$name]); else $_SERVER[$name] = $server;
+            }
+        }
+        $puts = 0;
+        $options = $settings['disks']['visits'];
+        $options['http_handler'] = function ($request, array $http) use (&$puts) {
+            $this->assertSame(3, $http['connect_timeout']);
+            $this->assertSame(10, $http['timeout']);
+            if ($request->getMethod() === 'PUT') {
+                $puts++;
+                return new \GuzzleHttp\Promise\RejectedPromise(new \GuzzleHttp\Exception\ConnectException('Simulated S3 outage', $request));
+            }
+            return new \GuzzleHttp\Promise\FulfilledPromise(new \GuzzleHttp\Psr7\Response(200));
+        };
+        Storage::set('visits', Storage::createS3Driver($options));
+        DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
+        $this->postJson(route('save.visits'), $this->vehicle([
+            'submission_id' => (string) Str::uuid(), 'photo2' => $this->vehiclePhoto(),
+        ]))->assertStatus(503)->assertJsonPath('outcome', 'not_saved');
+        $this->assertSame(1, $puts);
+        $this->assertDatabaseCount('visitas', 0);
+        $this->assertDatabaseCount('logs', 0);
     }
 
     public function test_vehicle_registration_rejects_malformed_photo_data_before_storing()
@@ -345,7 +444,7 @@ class VisitRegistrationTest extends TestCase
 
         $this->postJson(route('save.visits'), $manualVisit)->assertOk();
         $visit = Visit::latest('id')->firstOrFail();
-        $this->assertSame('Visitante sin licencia', $visit->Primer_Nombre);
+        $this->assertSame('VISITANTE SIN LICENCIA', $visit->Primer_Nombre);
         $this->assertNull($visit->path_licencia);
         Storage::disk('visits')->assertExists($visit->path_placa);
         Storage::disk('visits')->assertExists($visit->path_visitante);
@@ -357,6 +456,33 @@ class VisitRegistrationTest extends TestCase
         $this->postJson(route('save.visits'), $scannedVisit)
             ->assertUnprocessable()
             ->assertJsonValidationErrors('photo1');
+    }
+
+    public function test_vehicle_photo_configurations_for_manual_and_scanned_visitors()
+    {
+        for ($mask = 0; $mask < 8; $mask++) {
+            DB::table('config')->where('id', 1)->update([
+                'enable_fotolicencia' => ($mask & 1) ? 1 : 0,
+                'enable_fotoplaca' => ($mask & 2) ? 1 : 0,
+                'enable_fotovisitante' => ($mask & 4) ? 1 : 0,
+            ]);
+            foreach ([false, true] as $manual) {
+                $payload = $this->vehicle([
+                    'submission_id' => (string) Str::uuid(),
+                    'photo1' => $this->vehiclePhoto(), 'photo2' => $this->vehiclePhoto(), 'photo3' => $this->vehiclePhoto(),
+                ]);
+                if ($manual) { $payload['nombreManual'] = 'MANUAL'; $payload['tokens'] = null; }
+                $response = $this->postJson(route('save.visits'), $payload)->assertOk();
+                $visit = Visit::findOrFail($response->json('id'));
+                foreach (['path_licencia', 'path_placa', 'path_visitante'] as $index => $column) {
+                    $expected = (bool) ($mask & (1 << $index)) && !($manual && $index === 0);
+                    $this->assertSame($expected, (bool) $visit->$column);
+                    if ($expected) Storage::disk('visits')->assertExists($visit->$column);
+                }
+            }
+        }
+        $this->assertDatabaseCount('visitas', 16);
+        $this->assertDatabaseCount('logs', 16);
     }
 
     public function test_filters_reports_exports_and_redirects()

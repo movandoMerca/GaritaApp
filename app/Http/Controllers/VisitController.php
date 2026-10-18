@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log as Logger;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Response;
 use Dompdf\Dompdf;
@@ -181,6 +182,26 @@ class VisitController extends Controller
 
     public function save(Request $request)
     {
+        try {
+            return $this->saveVehicleVisit($request);
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            // Configuration, validation DB queries and the initial UUID lookup
+            // must also return the same recoverable contract, without SQL/PII.
+            Logger::error('No se pudo verificar un envío vehicular.', [
+                'exception_type' => get_class($exception),
+            ]);
+
+            return response()->json([
+                'message' => 'No se pudo verificar el guardado. Sus datos se conservaron; puede reintentar el mismo envío.',
+                'outcome' => 'unknown',
+            ], 503);
+        }
+    }
+
+    private function saveVehicleVisit(Request $request)
+    {
         $config = config::find(1);
         $enableFotoLicencia = ($config->enable_fotolicencia ?? 0) == 1;
         $enableFotoPlaca = ($config->enable_fotoplaca ?? 1) == 1;
@@ -289,6 +310,9 @@ class VisitController extends Controller
         $nombreManual = $esIngresoManual ? trim($nombreManual) : '';
         $disk = null;
         $storedFiles = [];
+        $transactionStarted = false;
+        $commitAttempted = false;
+        $visit = null;
 
         try {
             $disk = Storage::disk('visits');
@@ -311,73 +335,75 @@ class VisitController extends Controller
                 $photoPaths[$photo['column']] = $filename;
             }
 
-            $visit = DB::transaction(function () use ($request, $tokens, $nombreManual, $id_residente, $placa, $cono, $photoPaths, $submissionId, $userId) {
-                $visit = new Visit;
-                $visit->cono = $cono;
-                $visit->residente_id = $id_residente;
-                $visit->Placa = $placa;
+            DB::beginTransaction();
+            $transactionStarted = true;
+            $visit = new Visit;
+            $visit->cono = $cono;
+            $visit->residente_id = $id_residente;
+            $visit->Placa = $placa;
 
-                if ($nombreManual !== '') {
-                    $visit->Primer_Nombre = $nombreManual;
-                    $visit->Primer_Apellido = '';
-                    $visit->cui = '';
-                    $visit->Fecha_nac = '';
-                } else {
-                    $visit->numeroDocumento = $tokens[0];
-                    $visit->tipoLicencia = $tokens[1];
-                    $visit->Primer_Nombre = $tokens[2];
-                    $visit->Segundo_Nombre = $tokens[3] ?? null;
-                    $visit->Primer_Apellido = $tokens[4];
-                    $visit->Segundo_Apellido = $tokens[5] ?? null;
-                    $visit->Fecha_nac = $tokens[6];
-                    $visit->Fecha_vencimiento = $tokens[7];
-                    $visit->cui = $tokens[8];
-                    $visit->tel_emergencia = $tokens[9] ?? null;
-                }
+            if ($nombreManual !== '') {
+                $visit->Primer_Nombre = $nombreManual;
+                $visit->Primer_Apellido = '';
+                $visit->cui = '';
+                $visit->Fecha_nac = '';
+            } else {
+                $visit->numeroDocumento = $tokens[0];
+                $visit->tipoLicencia = $tokens[1];
+                $visit->Primer_Nombre = $tokens[2];
+                $visit->Segundo_Nombre = $tokens[3] ?? null;
+                $visit->Primer_Apellido = $tokens[4];
+                $visit->Segundo_Apellido = $tokens[5] ?? null;
+                $visit->Fecha_nac = $tokens[6];
+                $visit->Fecha_vencimiento = $tokens[7];
+                $visit->cui = $tokens[8];
+                $visit->tel_emergencia = $tokens[9] ?? null;
+            }
 
-                $visit->tipo_visita = 'vehicular';
-                $visit->es_repartidor = $request->boolean('es_repartidor');
-                $visit->fechaingreso = now();
-                $visit->created_by = $userId;
-                $visit->submission_id = $submissionId;
-                foreach ($photoPaths as $column => $path) {
-                    $visit->$column = $path;
-                }
-                if (!$visit->save()) {
-                    throw new \RuntimeException('No se pudo registrar la visita.');
-                }
+            $visit->tipo_visita = 'vehicular';
+            $visit->es_repartidor = $request->boolean('es_repartidor');
+            $visit->fechaingreso = now();
+            $visit->created_by = $userId;
+            $visit->submission_id = $submissionId;
+            foreach ($photoPaths as $column => $path) {
+                $visit->$column = $path;
+            }
+            if (!$visit->save()) {
+                throw new \RuntimeException('No se pudo registrar la visita.');
+            }
 
-                $log = new log;
-                $log->user_id = $userId;
-                $log->accion = Str::limit('Ingreso una nueva Visita de ' . $visit->Primer_Nombre . ' ' . $visit->Primer_Apellido
-                    . ' al residente ' . $visit->residente->fullname(false), 200, '');
-                if (!$log->save()) {
-                    throw new \RuntimeException('No se pudo registrar la bitácora.');
-                }
+            $log = new log;
+            $log->user_id = $userId;
+            $log->accion = Str::limit('Ingreso una nueva Visita de ' . $visit->Primer_Nombre . ' ' . $visit->Primer_Apellido
+                . ' al residente ' . $visit->residente->fullname(false), 200, '');
+            if (!$log->save()) {
+                throw new \RuntimeException('No se pudo registrar la bitácora.');
+            }
 
-                return $visit;
-            });
+            $commitAttempted = true;
+            DB::commit();
         } catch (Throwable $exception) {
-            foreach ($storedFiles as $filename) {
+            $notSaved = !$transactionStarted;
+            if ($transactionStarted && !$commitAttempted) {
                 try {
-                    if ($disk) {
-                        if (!$disk->delete($filename)) {
-                            Logger::error('No se pudo limpiar una foto de una visita vehicular fallida.');
-                        }
-                    }
-                } catch (Throwable $cleanupException) {
-                    Logger::error('No se pudo limpiar una foto de una visita vehicular fallida.', [
-                        'exception_type' => get_class($cleanupException),
-                    ]);
+                    DB::rollBack();
+                    $notSaved = true;
+                } catch (Throwable $rollbackException) {
+                    $notSaved = false;
                 }
             }
 
-            if ($submissionId && $exception instanceof QueryException) {
+            $existingVisit = null;
+            if ($transactionStarted && !$notSaved) {
+                // A COMMIT may have succeeded even when its acknowledgement was
+                // lost. Verify over a fresh connection, outside the old snapshot.
+                DB::purge();
+            }
+            if ($submissionId || ($commitAttempted && $visit && $visit->id)) {
                 try {
-                    $existingVisit = Visit::where('submission_id', $submissionId)->first();
-                    if ($existingVisit && (int) $existingVisit->created_by === (int) $userId) {
-                        return $this->vehicleVisitResponse($existingVisit, false);
-                    }
+                    $existingVisit = $submissionId
+                        ? Visit::where('submission_id', $submissionId)->first()
+                        : Visit::find($visit->id);
                 } catch (Throwable $lookupException) {
                     Logger::error('No se pudo verificar el resultado de un envío vehicular.', [
                         'exception_type' => get_class($lookupException),
@@ -385,7 +411,37 @@ class VisitController extends Controller
                 }
             }
 
-            $context = ['exception_type' => get_class($exception)];
+            // Never remove files that may belong to a committed visit. An
+            // ambiguous result retains its files until it can be reconciled.
+            $referencedFiles = $existingVisit ? [
+                $existingVisit->path_licencia, $existingVisit->path_placa, $existingVisit->path_visitante,
+            ] : [];
+            if ($notSaved || $existingVisit) {
+                foreach (array_diff($storedFiles, $referencedFiles) as $filename) {
+                    try {
+                        if ($disk && !$disk->delete($filename)) {
+                            Logger::error('No se pudo limpiar una foto de una visita vehicular fallida.');
+                        }
+                    } catch (Throwable $cleanupException) {
+                        Logger::error('No se pudo limpiar una foto de una visita vehicular fallida.', [
+                            'exception_type' => get_class($cleanupException),
+                        ]);
+                    }
+                }
+            }
+            if ($existingVisit) {
+                if ((int) $existingVisit->created_by !== (int) $userId) {
+                    return response()->json(['message' => 'No se pudo verificar este envío. Inicie un nuevo registro.'], 409);
+                }
+
+                return $this->vehicleVisitResponse($existingVisit, !$submissionId);
+            }
+
+            $context = [
+                'exception_type' => get_class($exception),
+                'outcome' => $notSaved ? 'not_saved' : 'unknown',
+                'submission_id' => $submissionId,
+            ];
             if ($exception instanceof QueryException && $exception->errorInfo) {
                 $context['sql_state'] = $exception->errorInfo[0] ?? null;
                 $context['database_code'] = $exception->errorInfo[1] ?? null;
@@ -393,8 +449,10 @@ class VisitController extends Controller
             Logger::error('No se pudo guardar una visita vehicular.', $context);
 
             return response()->json([
-                'message' => 'No se pudo confirmar el guardado. Se conservaron los datos; puede reintentar sin duplicar la visita.',
-                'outcome' => $exception instanceof QueryException ? 'unknown' : 'not_saved',
+                'message' => $notSaved
+                    ? 'No se guardó la visita. Se conservaron los datos y puede reintentar.'
+                    : 'No se pudo confirmar el guardado. Se conservaron los datos; puede reintentar sin duplicar la visita.',
+                'outcome' => $notSaved ? 'not_saved' : 'unknown',
             ], 503);
         }
 

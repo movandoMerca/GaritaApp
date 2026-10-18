@@ -147,7 +147,7 @@ parcial no se presenta como completa y permite corregir los datos antes de
 guardar.
 
 Para generar PDF con fotografías PNG, PHP debe tener GD habilitado (Docker ya
-lo incluye). En Laragon configure `upload_max_filesize=8M` y `post_max_size=12M`
+lo incluye). En Laragon configure `upload_max_filesize=8M` y `post_max_size=20M`
 en `php.ini` y reinicie PHP; Docker incluye esos límites. El disco `visits`
 conserva la configuración local/S3 existente.
 
@@ -221,3 +221,49 @@ resolución y los aciertos antes de corregir cada campo en
 CUI y nacimiento son correctos. El objetivo es al menos 18 de 20 capturas;
 la tasa por campo es su suma dividida entre 20. Esta medición requiere el
 equipo con DroidCam y es independiente de los resultados sintéticos.
+
+## Guardado vehicular y CloudPanel
+
+El guardado vehicular limita el intento completo (sesión, POST, lectura de la
+respuesta y una renovación CSRF) a 60 segundos. Cada comprobación de sesión
+admite 10 segundos. Las respuestas incompletas y las conexiones perdidas dejan
+el mismo envío pendiente de verificación, conservando su UUID y sus fotos.
+No se elimina una foto si la confirmación de la transacción es incierta.
+
+Para producción sin Docker, seguir [la guía de CloudPanel](documentacion/despliegue-cloudpanel.md).
+El disco S3 de visitas usa conexión máxima de 3 segundos, operación máxima de
+10 segundos y cero reintentos internos. PHP y Nginx deben admitir 20 MB por POST.
+
+### Pruebas vehiculares aisladas
+
+Este Compose es **independiente**: no combinar con `docker-compose.yml`.
+No lee el `.env` de desarrollo ni accede al S3 real. Usa MySQL temporal,
+volúmenes propios y un controlador de pruebas montado únicamente dentro de
+estos contenedores. Los datos de identidad y las fotografías son sintéticos.
+
+```bash
+docker compose -p garita-vehicle-test -f docker-compose.visits-test.yml up -d --build --wait
+docker compose -p garita-vehicle-test -f docker-compose.visits-test.yml exec -u www-data -T app php vendor/bin/phpunit -c phpunit.visits.xml --do-not-cache-result
+docker compose -p garita-vehicle-test -f docker-compose.visits-test.yml exec -u www-data -T app php tests/docker/prepare-visits.php
+VISITS_BROWSER=edge node tests/browser/vehicle-visit.cjs
+VISITS_BROWSER=chrome node tests/browser/vehicle-visit.cjs
+```
+
+Requiere `playwright-core` y Edge/Chrome instalados. `PLAYWRIGHT_MODULE` admite
+una instalación externa de Playwright. Las pruebas rechazan un destino distinto
+de localhost:18880 y comprueban la base `garita_visits_test` y almacenamiento
+local antes de crear visitas. No ejecutar `prepare-visits.php` fuera de esta
+instancia: reinicia exclusivamente sus datos descartables.
+
+La suite reproduce respuestas HTTP realmente truncadas o detenidas, antes y
+después de las cabeceras, con relojes virtuales del navegador para verificar los
+límites de 10/60 segundos. También prueba sesión, CSRF, errores HTTP, cuota del
+borrador, recarga y resultado incierto. Contra Laravel comprueba las ocho
+configuraciones de fotos, 20 ciclos completos consecutivos por navegador,
+respuesta perdida después del commit y envíos simultáneos/doble clic.
+
+Para detener y retirar solo esta instancia y sus volúmenes descartables:
+
+```bash
+docker compose -p garita-vehicle-test -f docker-compose.visits-test.yml down -v
+```

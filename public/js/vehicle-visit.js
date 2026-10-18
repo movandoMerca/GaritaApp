@@ -33,13 +33,14 @@
         placa: document.getElementById('canvas2'),
         visitante: document.getElementById('canvas3')
     };
-    const mutableControls = Array.from(form.querySelectorAll('.visit-input'));
+    const mutableControls = Array.from(document.querySelectorAll('.visit-input'));
     const cameras = Object.fromEntries(roles.map(role => [role, null]));
 
     let tokenizer = [];
     let nombreManual = '';
     let photos = { licencia: null, placa: null, visitante: null };
     let saving = false;
+    let registrationComplete = false;
     let lockedForRetry = false;
     let pendingSubmission = null;
     let saveAttempted = false;
@@ -86,10 +87,15 @@
     }
 
     function updateSaveButton() {
-        if (saving) {
+        saveButton.removeAttribute('aria-label');
+        if (registrationComplete) {
+            saveButton.disabled = true;
+            saveButton.textContent = 'Registro guardado';
+        } else if (saving) {
             saveButton.disabled = true;
             saveButton.textContent = 'Guardando…';
         } else if (lockedForRetry) {
+            saveButton.setAttribute('aria-label', 'Verificar o reintentar el mismo guardado');
             saveButton.disabled = false;
             saveButton.textContent = 'Verificar / reintentar guardado';
         } else {
@@ -98,7 +104,7 @@
         }
 
         mutableControls.forEach(function (control) {
-            control.disabled = saving || lockedForRetry;
+            control.disabled = saving || lockedForRetry || registrationComplete;
         });
 
         if (cancelLink) {
@@ -363,59 +369,69 @@
         return data;
     }
 
-    async function fetchWithTimeout(url, options, timeoutMs) {
+    // The budget includes headers AND the complete body, across the CSRF retry.
+    async function fetchJsonWithTimeout(url, options, deadline, limitMs) {
+        const remaining = Math.min(limitMs, deadline - Date.now());
+        if (remaining <= 0) throw new DOMException('Tiempo de espera agotado', 'AbortError');
         const controller = new AbortController();
-        const timeout = window.setTimeout(function () { controller.abort(); }, timeoutMs);
+        let timer;
         try {
-            return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+            return await Promise.race([
+                (async function () {
+                    const response = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+                    const text = await response.text();
+                    let result = null;
+                    try {
+                        result = JSON.parse(text);
+                        if (typeof result === 'string') result = JSON.parse(result);
+                    } catch (_) { /* Invalid JSON cannot confirm a registration. */ }
+                    return { response: response, result: result };
+                })(),
+                new Promise(function (_, reject) {
+                    timer = window.setTimeout(function () {
+                        controller.abort();
+                        reject(new DOMException('Tiempo de espera agotado', 'AbortError'));
+                    }, remaining);
+                })
+            ]);
         } finally {
-            window.clearTimeout(timeout);
+            window.clearTimeout(timer);
         }
     }
 
-    async function getSessionState() {
-        const response = await fetchWithTimeout(form.dataset.sessionUrl, {
+    async function getSessionState(deadline) {
+        const reply = await fetchJsonWithTimeout(form.dataset.sessionUrl, {
             method: 'GET',
             credentials: 'same-origin',
             cache: 'no-store',
             headers: { Accept: 'application/json' }
-        }, 10000);
-
+        }, deadline, 10000);
+        const response = reply.response;
         if (response.status === 401 || response.status === 403) {
             const error = new Error('session');
             error.sessionExpired = true;
             throw error;
         }
         if (!response.ok) throw new Error('session-check');
-
-        const result = await response.json();
+        const result = reply.result;
+        if (!result || typeof result !== 'object') throw new Error('session-check');
         if (String(result.user_id) !== String(form.dataset.userId)) {
             const error = new Error('account-changed');
             error.accountChanged = true;
             throw error;
         }
         if (typeof result.csrf_token !== 'string' || !result.csrf_token) throw new Error('csrf-token');
-
         form.dataset.csrfToken = result.csrf_token;
         return result.csrf_token;
     }
 
-    async function postSubmission(payload, csrfToken) {
-        return fetchWithTimeout(form.dataset.saveUrl, {
+    async function postSubmission(payload, csrfToken, deadline) {
+        return fetchJsonWithTimeout(form.dataset.saveUrl, {
             method: 'POST',
             credentials: 'same-origin',
             headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
             body: prepareFormData(payload)
-        }, 60000);
-    }
-
-    async function readJsonResponse(response) {
-        try {
-            const result = await response.json();
-            return typeof result === 'string' ? JSON.parse(result) : result;
-        } catch (_) {
-            return null;
-        }
+        }, deadline, 60000);
     }
 
     function completeRegistration(result) {
@@ -426,6 +442,15 @@
         const target = new URL(url, window.location.href);
         if (target.origin !== window.location.origin || !target.pathname.includes('/visit/detailvisit/')) return false;
 
+        registrationComplete = true;
+        saving = false;
+        updateSaveButton();
+        displayMessage('La visita quedó registrada.', 'success');
+        window.clearTimeout(alertTimer);
+        const link = document.createElement('a');
+        link.href = target.href;
+        link.textContent = ' Abrir el detalle de la visita';
+        messageBox.appendChild(link);
         removeDraft();
         window.location.replace(target.href);
         return true;
@@ -435,16 +460,20 @@
         saving = false;
         lockedForRetry = true;
         saveAttempted = true;
-        saveButton.setAttribute('aria-label', 'Verificar o reintentar el mismo guardado');
         updateSaveButton();
         displayMessage(message + ' Reintente para verificarlo; se usará el mismo envío y no se duplicará la visita.', 'error');
         saveDraft();
     }
 
+    function resetSubmission() {
+        lockedForRetry = false;
+        pendingSubmission = null;
+        saveAttempted = false;
+    }
+
     async function submitForm(event) {
         event.preventDefault();
-        if (saving) return;
-
+        if (saving || registrationComplete) return;
         const retryingUncertainSubmission = lockedForRetry;
         if (lockedForRetry && !pendingSubmission) {
             setUncertainState('No se puede recuperar el envío anterior. Revise el listado de visitas antes de iniciar otro registro.');
@@ -456,183 +485,83 @@
             const collected = collectSubmission();
             if (collected.errors.length) {
                 displayMessage('Revise estos datos antes de guardar:', 'error', collected.errors);
-                document.getElementById('responset').focus();
+                messageBox.focus();
                 return;
             }
-
             payload = collected.payload;
             pendingSubmission = payload;
             saveAttempted = false;
-            saveDraft();
         }
 
+        const deadline = Date.now() + 60000;
+        let mayHaveSaved = retryingUncertainSubmission;
         saving = true;
         updateSaveButton();
         clearMessage();
-
+        saveDraft();
         try {
-            let csrfToken;
-            try {
-                csrfToken = await getSessionState();
-            } catch (error) {
-                saving = false;
-                if (retryingUncertainSubmission) {
-                    lockedForRetry = true;
-                    updateSaveButton();
-                    displayMessage(error.sessionExpired || error.accountChanged
-                        ? (error.accountChanged
-                            ? 'La sesión pertenece a otra cuenta. Inicie sesión con la cuenta original y vuelva a verificar el guardado pendiente.'
-                            : 'Su sesión venció. Inicie sesión en otra pestaña y luego vuelva aquí para verificar el guardado pendiente.')
-                        : 'No se pudo verificar la sesión. Revise la conexión y vuelva a verificar el guardado pendiente.', 'error');
-                    if (error.sessionExpired) addLoginLink();
-                    saveDraft();
-                    return;
-                }
-
-                if (error.sessionExpired || error.accountChanged) {
-                    lockedForRetry = false;
-                    pendingSubmission = null;
-                    saveAttempted = false;
-                    updateSaveButton();
-                    displayMessage(error.accountChanged
-                        ? 'La sesión pertenece a otra cuenta. Recupere la visita con la cuenta con que la comenzó.'
-                        : 'Su sesión venció. Inicie sesión en otra pestaña y luego vuelva aquí para reintentar.', 'error');
-                    if (error.sessionExpired) addLoginLink();
-                } else {
-                    pendingSubmission = null;
-                    saveAttempted = false;
-                    lockedForRetry = false;
-                    updateSaveButton();
-                    displayMessage('No se pudo verificar la sesión. Revise la conexión y vuelva a intentarlo; sus datos siguen en el formulario.', 'error');
-                }
-                saveDraft();
-                return;
-            }
-
-            saveAttempted = true;
+            let csrfToken = await getSessionState(deadline);
+            mayHaveSaved = saveAttempted = true;
             saveDraft();
-            let response = await postSubmission(payload, csrfToken);
-
-            if (response.status === 419) {
-                try {
-                    csrfToken = await getSessionState();
-                    response = await postSubmission(payload, csrfToken);
-                } catch (error) {
-                    if (error.sessionExpired || error.accountChanged) throw error;
-                    if (retryingUncertainSubmission) {
-                        setUncertainState('No se pudo renovar la sesión para verificar el intento anterior.');
-                    } else {
-                        saving = false;
-                        lockedForRetry = false;
-                        pendingSubmission = null;
-                        saveAttempted = false;
-                        updateSaveButton();
-                        displayMessage('El servidor rechazó la sesión. Revise la conexión y vuelva a guardar; sus datos se conservaron.', 'error');
-                        saveDraft();
-                    }
-                    return;
-                }
+            let reply = await postSubmission(payload, csrfToken, deadline);
+            if (reply.response.status === 419) {
+                // Only this rejected POST is known not to have saved. An older
+                // uncertain attempt must remain protected during session renewal.
+                mayHaveSaved = saveAttempted = retryingUncertainSubmission;
+                saveDraft();
+                csrfToken = await getSessionState(deadline);
+                mayHaveSaved = saveAttempted = true;
+                saveDraft();
+                reply = await postSubmission(payload, csrfToken, deadline);
             }
 
-            const result = await readJsonResponse(response);
+            const response = reply.response;
+            const result = reply.result;
             if (response.ok && completeRegistration(result)) return;
-
             if (response.ok) {
                 setUncertainState('El servidor respondió, pero no confirmó el registro con una respuesta válida.');
                 return;
             }
 
-            saving = false;
-            if (response.status >= 500 || response.status === 0) {
-                if (result && result.outcome === 'not_saved') {
-                    lockedForRetry = false;
-                    pendingSubmission = null;
-                    saveAttempted = false;
-                    updateSaveButton();
-                    displayMessage(result.message || 'No se guardó la visita. Sus datos y fotos siguen en el formulario; corrija el problema y vuelva a intentarlo.', 'error');
-                    saveDraft();
-                } else {
-                    setUncertainState(result && result.message ? result.message : 'El servidor no confirmó el resultado.');
-                }
+            const rejected = [401, 403, 413, 419, 422].includes(response.status);
+            const notSaved = result && result.outcome === 'not_saved';
+            if (retryingUncertainSubmission || (!rejected && !notSaved)) {
+                setUncertainState(result && result.message ? result.message : 'El servidor no confirmó el resultado del guardado.');
+                if ([401, 419].includes(response.status)) addLoginLink();
                 return;
             }
 
-            if (response.status === 401 || response.status === 419) {
-                if (retryingUncertainSubmission) {
-                    setUncertainState('La sesión rechazó este reintento; el resultado del intento anterior sigue sin confirmarse.');
-                } else {
-                    lockedForRetry = false;
-                    pendingSubmission = null;
-                    saveAttempted = false;
-                    updateSaveButton();
-                    displayMessage('Su sesión venció o ya no es válida. Inicie sesión en otra pestaña y luego vuelva aquí para guardar.', 'error');
-                }
+            resetSubmission();
+            if ([401, 403, 419].includes(response.status)) {
+                displayMessage('Su sesión venció o ya no es válida. Inicie sesión en otra pestaña y luego vuelva aquí para guardar.', 'error');
                 addLoginLink();
             } else if (response.status === 413) {
-                if (retryingUncertainSubmission) {
-                    setUncertainState('Las fotos del reintento son demasiado grandes. El intento anterior aún no se confirmó; consulte las visitas recientes antes de iniciar otro registro.');
-                } else {
-                    lockedForRetry = false;
-                    pendingSubmission = null;
-                    saveAttempted = false;
-                    updateSaveButton();
-                    displayMessage('Las fotos son demasiado grandes para enviarse juntas. Vuelva a tomarlas y trate de guardar nuevamente.', 'error');
-                }
+                displayMessage('Las fotos son demasiado grandes para enviarse juntas. Vuelva a tomarlas y trate de guardar nuevamente.', 'error');
             } else if (response.status === 422) {
-                lockedForRetry = false;
-                pendingSubmission = null;
-                saveAttempted = false;
-                updateSaveButton();
                 displayValidationErrors(result);
-            } else if (response.status === 409) {
-                lockedForRetry = false;
-                pendingSubmission = null;
-                saveAttempted = false;
-                updateSaveButton();
-                displayMessage('No se pudo verificar este envío. Revise las visitas recientes y reinicie el registro antes de continuar.', 'error');
-            } else if (result && result.message) {
-                setUncertainState(result.message);
             } else {
-                setUncertainState('El servidor respondió con el código ' + response.status + ', pero no confirmó el guardado.');
+                displayMessage(result.message || 'No se guardó la visita. Sus datos y fotos siguen en el formulario; vuelva a intentarlo.', 'error');
             }
-
-            saveDraft();
         } catch (error) {
-            saving = false;
-            if (error.sessionExpired || error.accountChanged) {
-                if (retryingUncertainSubmission) {
-                    lockedForRetry = true;
-                    updateSaveButton();
-                    displayMessage(error.accountChanged
-                        ? 'La sesión pertenece a otra cuenta. Inicie sesión con la cuenta original y vuelva a verificar el guardado pendiente.'
-                        : 'Su sesión venció. Inicie sesión en otra pestaña y luego vuelva aquí para verificar el guardado pendiente.', 'error');
-                    if (error.sessionExpired) addLoginLink();
-                    saveDraft();
-                    return;
-                }
-
-                lockedForRetry = false;
-                pendingSubmission = null;
-                saveAttempted = false;
-                updateSaveButton();
+            if (mayHaveSaved) {
+                setUncertainState(error.sessionExpired || error.accountChanged
+                    ? 'La sesión cambió o venció y el guardado pendiente aún no se confirmó.'
+                    : (error.name === 'AbortError'
+                        ? 'El guardado agotó el límite de 60 segundos y aún no se puede confirmar el resultado.'
+                        : 'Se interrumpió la conexión durante el guardado.'));
+            } else {
+                resetSubmission();
                 displayMessage(error.accountChanged
                     ? 'La sesión pertenece a otra cuenta. Recupere la visita con la cuenta con que la comenzó.'
-                    : 'Su sesión venció. Inicie sesión en otra pestaña y luego vuelva aquí para reintentar.', 'error');
-                if (error.sessionExpired) addLoginLink();
-                saveDraft();
-            } else if (saveAttempted) {
-                setUncertainState(error.name === 'AbortError'
-                    ? 'El guardado tardó más de 60 segundos y aún no se puede confirmar el resultado.'
-                    : 'Se interrumpió la conexión durante el guardado.');
-            } else {
-                lockedForRetry = false;
-                pendingSubmission = null;
-                updateSaveButton();
-                displayMessage(error.name === 'AbortError'
-                    ? 'No se pudo verificar la sesión a tiempo. Sus datos se conservaron; vuelva a intentarlo.'
-                    : 'No se pudo conectar con el servidor. Revise la conexión y vuelva a intentarlo; sus datos se conservaron.', 'error');
-                saveDraft();
+                    : (error.sessionExpired
+                        ? 'Su sesión venció. Inicie sesión en otra pestaña y luego vuelva aquí para reintentar.'
+                        : 'No se pudo verificar la sesión a tiempo. Revise la conexión; sus datos se conservaron y puede reintentar.'), 'error');
             }
+            if (error.sessionExpired) addLoginLink();
+        } finally {
+            saving = false;
+            updateSaveButton();
+            saveDraft();
         }
     }
 
@@ -746,6 +675,8 @@
                     try {
                         const stream = await mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
                         const video = videoEls[role];
+                        video.muted = true;
+                        video.playsInline = true;
                         video.srcObject = stream;
                         cameras[role] = stream;
                         await video.play();
