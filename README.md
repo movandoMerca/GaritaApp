@@ -267,3 +267,19 @@ Para detener y retirar solo esta instancia y sus volúmenes descartables:
 ```bash
 docker compose -p garita-vehicle-test -f docker-compose.visits-test.yml down -v
 ```
+
+### Una cámara para las tres fotos vehiculares
+
+Se puede configurar la misma cámara para licencia, placa y visitante. La página
+comparte una sola transmisión entre las vistas y la libera una sola vez al salir.
+Si una cámara configurada ya no está disponible, reutiliza una disponible cuando
+no hay suficientes dispositivos distintos. Al capturar las tres fotos juntas con
+una cámara compartida, las tres corresponden al encuadre de ese momento.
+
+La prueba específica verifica una cámara por ID o nombre, cámaras configuradas
+no disponibles, dos cámaras con una asignación compartida, tres cámaras distintas
+y fallo de apertura. Ejecuta Chrome y Edge contra la instancia aislada anterior:
+
+```bash
+node tests/browser/vehicle-shared-camera.cjs
+```

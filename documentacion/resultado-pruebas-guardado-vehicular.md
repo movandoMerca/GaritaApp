@@ -66,3 +66,19 @@ no se comprobaron ni modificaron. Seguir la
 [guía de despliegue y comprobación en CloudPanel](despliegue-cloudpanel.md).
 Los resultados verifican estos escenarios locales; no constituyen una garantía
 absoluta frente a fallos de infraestructura externos.
+
+## Verificación adicional: cámara compartida
+
+Se añadió `tests/browser/vehicle-shared-camera.cjs` para comprobar en Edge y
+Chrome una cámara seleccionada en los tres roles por ID o por nombre, la
+reutilización de la única cámara disponible ante IDs antiguos, dos cámaras con
+una asignación compartida, tres cámaras distintas y un fallo de apertura.
+Las vistas con el mismo dispositivo comparten el mismo `MediaStream`, se abre
+una sola transmisión por dispositivo después de comprobar permisos y se detiene
+una vez por salida de la página. Las pruebas usan cámaras sintéticas y guardan
+las tres fotografías en la base/almacenamiento local desechable.
+
+Resultado: 12 escenarios aprobados (seis por navegador), diez visitas y diez
+bitácoras de ingreso, con sus 30 fotografías verificadas y sin errores JavaScript
+no capturados en las páginas de visitas. Los casos de apertura fallida no crearon
+visitas. Se retiró únicamente la instancia temporal de pruebas al terminar.

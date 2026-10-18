@@ -28,6 +28,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($input['photos'])) {
         ['enable_fotolicencia', 'enable_fotoplaca', 'enable_fotovisitante'], $input['photos']
     ));
 }
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($input['cameras'])) {
+    if (!is_array($input['cameras']) || count($input['cameras']) !== 3
+        || count(array_filter($input['cameras'], 'is_string')) !== 3) {
+        http_response_code(422); exit;
+    }
+    Illuminate\Support\Facades\DB::table('users')->where('id', 1)->update(array_combine(
+        ['camara_id_licencia', 'camara_id_placa', 'camara_id_visitante'], $input['cameras']
+    ));
+}
 echo json_encode([
     'database' => config('database.connections.mysql.database'),
     'storage' => config('filesystems.disks.visits.driver'),

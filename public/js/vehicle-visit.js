@@ -656,14 +656,14 @@
                     placa: form.dataset.cameraPlaca,
                     visitante: form.dataset.cameraVisitante
                 };
-                const used = new Set();
+                const streamsByDevice = new Map();
                 const missing = [];
 
                 for (const role of enabledRoles) {
                     let deviceId = wanted[role];
                     if (deviceId && byLabel[deviceId]) deviceId = byLabel[deviceId].deviceId;
-                    if (!deviceId || !byId[deviceId] || used.has(deviceId)) {
-                        const alternative = devices.find(function (device) { return !used.has(device.deviceId); });
+                    if (!deviceId || !byId[deviceId]) {
+                        const alternative = devices.find(function (device) { return !streamsByDevice.has(device.deviceId); }) || devices[0];
                         deviceId = alternative ? alternative.deviceId : null;
                     }
                     if (!deviceId) {
@@ -671,9 +671,15 @@
                         continue;
                     }
 
-                    used.add(deviceId);
                     try {
-                        const stream = await mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+                        // Open each physical camera once, even if all photo roles
+                        // explicitly select the same device (or only one exists).
+                        if (!streamsByDevice.has(deviceId)) {
+                            streamsByDevice.set(deviceId, mediaDevices.getUserMedia({
+                                video: { deviceId: { exact: deviceId } }, audio: false
+                            }));
+                        }
+                        const stream = await streamsByDevice.get(deviceId);
                         const video = videoEls[role];
                         video.muted = true;
                         video.playsInline = true;
@@ -764,8 +770,8 @@
 
     window.addEventListener('pagehide', function () {
         saveDraft();
-        Object.keys(cameras).forEach(function (role) {
-            if (cameras[role]) cameras[role].getTracks().forEach(function (track) { track.stop(); });
+        new Set(Object.values(cameras)).forEach(function (stream) {
+            if (stream) stream.getTracks().forEach(function (track) { track.stop(); });
         });
     });
 
