@@ -48,6 +48,7 @@
     let alertTimer = null;
     let storageWarningShown = false;
     let draftDisabled = false;
+    let residentLookupVersion = 0;
 
     function displayMessage(message, kind, details) {
         window.clearTimeout(alertTimer);
@@ -608,23 +609,32 @@
     }
 
     async function loadResidentDetails(id) {
-        if (!id) {
-            document.getElementById('ftelefono').value = '';
-            document.getElementById('direccion').value = '';
-            return;
-        }
+        const version = ++residentLookupVersion;
+        const errorMessage = 'No se pudieron cargar los datos de la casa. Verifique su conexión; la visita sigue en el formulario.';
+        const houseField = document.getElementById('ftelefono');
+        const addressField = document.getElementById('direccion');
+        // Clear the previous house immediately, including when selection is cleared.
+        houseField.value = '';
+        addressField.value = '';
+        if (messageBox.textContent === errorMessage) clearMessage();
+        if (!id) return;
 
         try {
             const url = new URL(form.dataset.residentUrl, window.location.origin);
             url.searchParams.set('id', id);
-            const response = await fetch(url.href, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-            if (!response.ok) throw new Error('resident');
-            let resident = await response.json();
-            if (typeof resident === 'string') resident = JSON.parse(resident);
-            document.getElementById('ftelefono').value = resident.Codigo || '';
-            document.getElementById('direccion').value = resident.Direccion || '';
+            const reply = await fetchJsonWithTimeout(url.href, {
+                credentials: 'same-origin', headers: { Accept: 'application/json' }
+            }, Date.now() + 10000, 10000);
+            // A late response must never replace the currently selected resident.
+            if (version !== residentLookupVersion || String(fields.resident.value) !== String(id)) return;
+            const resident = reply.result;
+            if (!reply.response.ok || !resident || typeof resident !== 'object' || Array.isArray(resident)
+                || (resident.id !== undefined && String(resident.id) !== String(id))) throw new Error('resident');
+            houseField.value = resident.Codigo ?? '';
+            addressField.value = resident.Direccion ?? '';
         } catch (_) {
-            displayMessage('No se pudieron cargar los datos de la casa. Verifique su conexión; la visita sigue en el formulario.', 'error');
+            if (version !== residentLookupVersion || String(fields.resident.value) !== String(id)) return;
+            displayMessage(errorMessage, 'error');
         }
     }
 
@@ -743,10 +753,17 @@
 
     form.addEventListener('submit', submitForm);
     fields.scanner.addEventListener('keydown', handleScannerKey);
-    fields.resident.addEventListener('change', function () {
+    function handleResidentChange() {
         loadResidentDetails(fields.resident.value);
         scheduleDraftSave();
-    });
+    }
+    // Select2 emits a jQuery change, which does not reach native addEventListener.
+    // jQuery handles both native and Select2 changes without two lookups.
+    if (typeof window.jQuery === 'function') {
+        window.jQuery(fields.resident).on('change.vehicleVisit', handleResidentChange);
+    } else {
+        fields.resident.addEventListener('change', handleResidentChange);
+    }
     document.getElementById('guardarManual').addEventListener('click', handleManualSave);
     document.getElementById('abrirIngresoManual').addEventListener('click', showManualDialog);
     mutableControls.forEach(function (control) {

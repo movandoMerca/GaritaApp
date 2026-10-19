@@ -16,7 +16,11 @@ Illuminate\Support\Facades\DB::table('config')->where('id', 1)->update([
 ]);
 Illuminate\Support\Facades\DB::table('residentes')->insert([
     'id' => 1, 'Codigo' => 'A-12', 'Nombres' => 'Residente', 'Apellidos' => 'Prueba',
-    'Direccion' => 'Casa A-12', 'estado' => 1,
+    'Direccion' => 'Casa A-12', 'accesotel' => 'C101', 'estado' => 1,
+]);
+Illuminate\Support\Facades\DB::table('residentes')->insert([
+    'id' => 2, 'Codigo' => 'B-34', 'Nombres' => 'Segundo', 'Apellidos' => 'Residente',
+    'Direccion' => 'Casa B-34', 'accesotel' => 'C202', 'estado' => 1,
 ]);
 Illuminate\Support\Facades\DB::table('users')->where('id', 1)->update([
     'password' => Illuminate\Support\Facades\Hash::make('visits-test-only'),

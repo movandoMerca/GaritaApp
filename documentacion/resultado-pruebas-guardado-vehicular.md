@@ -82,3 +82,27 @@ Resultado: 12 escenarios aprobados (seis por navegador), diez visitas y diez
 bitácoras de ingreso, con sus 30 fotografías verificadas y sin errores JavaScript
 no capturados en las páginas de visitas. Los casos de apertura fallida no crearon
 visitas. Se retiró únicamente la instancia temporal de pruebas al terminar.
+
+## Corrección de datos de casa: pendiente de prueba en navegador
+
+El video aportado muestra No. Casa y Dirección vacíos al elegir Acceso
+Telefónico. El usuario confirmó que Placa y Cono funcionan. Se encontró que
+Select2 emite un cambio de jQuery y la página escuchaba únicamente eventos
+nativos. Se cambió esa suscripción, conservando compatibilidad con eventos
+nativos y sin duplicar consultas.
+
+La consulta ahora tiene un límite de diez segundos incluida la lectura de la
+respuesta, descarta respuestas de selecciones anteriores y limpia datos de
+la casa anterior inmediatamente. No requiere migraciones.
+
+Se prepararon dos casas ficticias y la regresión
+`tests/browser/vehicle-resident-selection.cjs`, que pulsa Select2 y comprueba
+cambio, borrador, respuestas fuera de orden, error recuperable y residente del
+registro guardado. La sintaxis PHP de la preparación pasó la revisión local.
+La ejecución en navegador no se completó: la revisión automática de permisos
+agotó su tiempo y después falló por falta de capacidad. Los intentos rechazados
+no se ejecutaron. No se atribuyen a esta corrección los resultados históricos
+de Edge y Chrome descritos arriba. La instancia Docker aislada preparada sigue
+pendiente de retirada al disponer de ejecución Docker autorizada.
+
+No se ha publicado ni verificado esta corrección en CloudPanel.

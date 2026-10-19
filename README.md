@@ -283,3 +283,17 @@ y fallo de apertura. Ejecuta Chrome y Edge contra la instancia aislada anterior:
 ```bash
 node tests/browser/vehicle-shared-camera.cjs
 ```
+
+### Datos de la casa al elegir acceso telefónico
+
+El formulario escucha el cambio de Select2 y actualiza No. Casa y Dirección.
+Descarta respuestas de una selección anterior y muestra un error recuperable
+si no puede consultar la casa. Con la instancia aislada preparada, ejecutar:
+
+```bash
+node tests/browser/vehicle-resident-selection.cjs
+```
+
+La regresión pulsa el selector real en Edge y Chrome, cambia de casa, recupera
+el borrador, simula respuestas fuera de orden y errores, y guarda con el
+residente elegido. Esta prueba nueva está pendiente de ejecución.
