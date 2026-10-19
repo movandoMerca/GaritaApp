@@ -1,806 +1,315 @@
-(function () {
+/* Browser adapters only: Livewire owns visitor data, validation and registration. */
+(function initialize() {
     'use strict';
-
+    const root = document.querySelector('[data-vehicle-visit-component]');
+    if (!root) return;
+    const component = root.__livewire;
+    if (!component) { document.addEventListener('livewire:load', initialize, {once:true}); return; }
     const form = document.getElementById('vehicle-visit-form');
-    if (!form) return;
-
+    const transportAlert = document.getElementById('vehicle-transport-alert');
     const roles = ['licencia', 'placa', 'visitante'];
-    const photoFields = { licencia: 'photo1', placa: 'photo2', visitante: 'photo3' };
-    const enabledPhotos = {
-        licencia: form.dataset.photoLicencia === 'true',
-        placa: form.dataset.photoPlaca === 'true',
-        visitante: form.dataset.photoVisitante === 'true'
-    };
-    const storageKey = 'garita.vehicle-visit.v1.' + form.dataset.userId;
-    const fields = {
-        scanner: document.getElementById('data'),
-        resident: document.getElementById('selectResidente'),
-        plate: document.getElementById('placa'),
-        cone: document.getElementById('cono'),
-        delivery: document.getElementById('es_repartidor'),
-        manualName: document.getElementById('nombre-manual')
-    };
-    const saveButton = document.getElementById('guardar');
-    const cancelLink = document.getElementById('prueba');
-    const messageBox = document.getElementById('responset');
-    const videoEls = {
-        licencia: document.getElementById('video1'),
-        placa: document.getElementById('video2'),
-        visitante: document.getElementById('video3')
-    };
-    const canvasEls = {
-        licencia: document.getElementById('canvas1'),
-        placa: document.getElementById('canvas2'),
-        visitante: document.getElementById('canvas3')
-    };
-    const mutableControls = Array.from(document.querySelectorAll('.visit-input'));
+    const photoFields = {licencia:'photo1', placa:'photo2', visitante:'photo3'};
+    const videoEls = Object.fromEntries(roles.map((role, i) => [role, document.getElementById('video'+(i+1))]));
+    const canvasEls = Object.fromEntries(roles.map((role, i) => [role, document.getElementById('canvas'+(i+1))]));
     const cameras = Object.fromEntries(roles.map(role => [role, null]));
+    const enabledRoles = roles.filter(role => form.dataset['photo'+role[0].toUpperCase()+role.slice(1)] === 'true');
+    const storageKey = 'garita.vehicle-visit.v1.'+root.dataset.userId;
+    let imageBackup = {}, backupDisabled = false, quotaReported = false, backupTimer;
+    let originalBackup;
+    try { originalBackup = JSON.parse(sessionStorage.getItem(storageKey) || 'null'); } catch (_) { /* Keep the current page usable. */ }
+    let restoring = !!originalBackup;
+    let inFlight = false, activeGeneration = 0, cameraInitializationComplete = false, leftPage = false;
+    let transportRequest = null, revision = 0;
+    const edits = new Map(), preservedEdits = new WeakMap(), requestRevisions = new WeakMap();
 
-    let tokenizer = [];
-    let nombreManual = '';
-    let photos = { licencia: null, placa: null, visitante: null };
-    let saving = false;
-    let registrationComplete = false;
-    let lockedForRetry = false;
-    let pendingSubmission = null;
-    let saveAttempted = false;
-    let saveTimeout = null;
-    let alertTimer = null;
-    let storageWarningShown = false;
-    let draftDisabled = false;
-    let residentLookupVersion = 0;
-
-    function displayMessage(message, kind, details) {
-        window.clearTimeout(alertTimer);
-        messageBox.replaceChildren();
-        messageBox.className = 'alert ' + (kind === 'success' ? 'alert-success' : 'alert-danger');
-        messageBox.appendChild(document.createTextNode(message));
-
-        (details || []).forEach(function (detail) {
-            const line = document.createElement('div');
-            line.textContent = detail;
-            messageBox.appendChild(line);
-        });
-
-        messageBox.hidden = false;
-        if (kind === 'success') {
-            alertTimer = window.setTimeout(function () { messageBox.hidden = true; }, 5000);
-        }
+    function boundInputs() {
+        return Array.from(root.querySelectorAll('input, select')).map(element => ({
+            element, name: element.getAttribute('wire:model.defer') || element.getAttribute('wire:model') || element.dataset.livewireInput,
+        })).filter(binding => binding.name);
     }
-
-    function clearMessage() {
-        window.clearTimeout(alertTimer);
-        messageBox.replaceChildren();
-        messageBox.hidden = true;
-        messageBox.className = '';
+    function inputValue(element) { return element.type === 'checkbox' ? element.checked : element.value; }
+    function writeValue(element, value) {
+        if (element.type === 'checkbox') element.checked = !!value;
+        else element.value = value == null ? '' : value;
     }
-
-    function addLoginLink() {
-        const line = document.createElement('div');
-        line.className = 'mt-2';
-        const link = document.createElement('a');
-        link.href = form.dataset.loginUrl;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.textContent = 'Iniciar sesión en otra pestaña';
-        line.appendChild(link);
-        messageBox.appendChild(line);
-    }
-
-    function updateSaveButton() {
-        saveButton.removeAttribute('aria-label');
-        if (registrationComplete) {
-            saveButton.disabled = true;
-            saveButton.textContent = 'Registro guardado';
-        } else if (saving) {
-            saveButton.disabled = true;
-            saveButton.textContent = 'Guardando…';
-        } else if (lockedForRetry) {
-            saveButton.setAttribute('aria-label', 'Verificar o reintentar el mismo guardado');
-            saveButton.disabled = false;
-            saveButton.textContent = 'Verificar / reintentar guardado';
-        } else {
-            saveButton.disabled = false;
-            saveButton.textContent = 'Guardar';
-        }
-
-        mutableControls.forEach(function (control) {
-            control.disabled = saving || lockedForRetry || registrationComplete;
-        });
-
-        if (cancelLink) {
-            cancelLink.setAttribute('aria-disabled', saving ? 'true' : 'false');
-            cancelLink.tabIndex = saving ? -1 : 0;
-        }
-    }
-
-    function stateForDraft() {
-        return {
-            version: 1,
-            user_id: String(form.dataset.userId),
-            submission_id: form.dataset.submissionId,
-            scanner: fields.scanner.value,
-            resident: fields.resident.value,
-            plate: fields.plate.value,
-            cone: fields.cone.value,
-            delivery: fields.delivery.checked,
-            tokens: tokenizer,
-            manual_name: nombreManual,
-            manual_name_input: fields.manualName.value,
-            photos: photos,
-            pending_submission: pendingSubmission,
-            attempt_sent: saveAttempted
-        };
-    }
-
-    function saveDraft() {
-        if (draftDisabled) return;
+    function backup() {
+        if (backupDisabled || restoring) return;
         try {
-            sessionStorage.setItem(storageKey, JSON.stringify(stateForDraft()));
+            sessionStorage.setItem(storageKey, JSON.stringify({
+                version:2, user_id:root.dataset.userId, submission_id:component.data.submissionId,
+                token:component.data.draftToken,
+                inputs:Object.fromEntries(boundInputs().map(({element,name}) => [name,inputValue(element)])),
+                photos:imageBackup, in_flight:inFlight,
+            }));
         } catch (_) {
-            if (!storageWarningShown) {
-                displayMessage('El navegador no permitió guardar un borrador. Mantenga esta pestaña abierta para no perder los datos.', 'error');
-                storageWarningShown = true;
+            if (!quotaReported) {
+                quotaReported = true;
+                setTimeout(() => component.call('backupUnavailable').catch(() => {}), 0);
             }
         }
     }
-
-    function scheduleDraftSave() {
-        window.clearTimeout(saveTimeout);
-        saveTimeout = window.setTimeout(saveDraft, 200);
-    }
-
-    function removeDraft() {
-        window.clearTimeout(saveTimeout);
-        draftDisabled = true;
+    function scheduleBackup() { clearTimeout(backupTimer); backupTimer = setTimeout(backup, 200); }
+    root.addEventListener('input', event => {
+        if (event.target.matches('input, select')) {
+            const binding = boundInputs().find(item => item.element === event.target);
+            if (binding) edits.set(binding.name, ++revision);
+            scheduleBackup();
+        }
+    });
+    root.addEventListener('change', scheduleBackup);
+    window.addEventListener('pagehide', () => {
+        leftPage = true; backup();
+        new Set(Object.values(cameras)).forEach(stream => stream?.getTracks().forEach(track => track.stop()));
+    });
+    window.addEventListener('vehicle:clear-backup', () => {
+        backupDisabled = true; clearTimeout(backupTimer);
+        try { sessionStorage.removeItem(storageKey); } catch (_) { /* Server already confirmed the outcome. */ }
+    });
+    window.addEventListener('vehicle:recovered', () => {
+        restoring = false; form.inert = false; transportAlert.hidden = true; backup();
+    });
+    document.getElementById('vehicle-reconnect').addEventListener('click', () => {
+        backup();
         try {
-            sessionStorage.removeItem(storageKey);
-        } catch (_) {
-            // The page can still continue if session storage is disabled.
-        }
-    }
-
-    function nameInitials() {
-        if (nombreManual) return nombreManual.trim().slice(0, 1).toUpperCase();
-        return (String(tokenizer[2] || '').slice(0, 1) + String(tokenizer[4] || '').slice(0, 1)).toUpperCase();
-    }
-
-    function renderVisitor() {
-        const values = nombreManual ? [nombreManual, '', '', ''] : [
-            tokenizer[2] || '', tokenizer[3] || '', tokenizer[4] || '', tokenizer[5] || ''
-        ];
-        ['1nombre', '2nombre', '1apellido', '2apellido'].forEach(function (id, index) {
-            document.getElementById(id).textContent = values[index];
-        });
-
-        document.getElementById('iniciales').textContent = nameInitials();
-        document.getElementById('icon').hidden = !nombreManual && tokenizer.length !== 11;
-        document.getElementById('ocultar').hidden = !nombreManual && tokenizer.length === 11;
-        document.getElementById('fechanac').textContent = nombreManual ? '' : (tokenizer[6] || '');
-        document.getElementById('cui').textContent = nombreManual ? '' : (tokenizer[8] || '');
-        document.getElementById('telefonoEmergencia').textContent = nombreManual ? '' : (tokenizer[9] || '');
-        document.getElementById('tipo').textContent = nombreManual ? '' : (tokenizer[1] || '');
-        document.getElementById('ndocument').textContent = nombreManual ? '' : (tokenizer[0] || '');
-        document.getElementById('fechavec').textContent = nombreManual ? '' : (tokenizer[7] || '');
-        document.getElementById('horaentrada').textContent = !nombreManual && tokenizer.length === 11 ? new Date().toLocaleString() : '';
-        fields.manualName.value = nombreManual;
-    }
-
-    function setPhoto(role, dataUrl) {
-        photos[role] = dataUrl || null;
-        window[photoFields[role]] = photos[role] || undefined;
-        const video = videoEls[role];
-        const canvas = canvasEls[role];
-
-        if (!photos[role]) {
-            canvas.hidden = true;
-            video.hidden = false;
-            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-            return Promise.resolve();
-        }
-
-        return new Promise(function (resolve) {
-            const image = new Image();
-            image.onload = function () {
-                canvas.width = image.naturalWidth;
-                canvas.height = image.naturalHeight;
-                canvas.getContext('2d').drawImage(image, 0, 0);
-                video.hidden = true;
-                canvas.hidden = false;
-                resolve();
-            };
-            image.onerror = function () {
-                photos[role] = null;
-                window[photoFields[role]] = undefined;
-                video.hidden = false;
-                canvas.hidden = true;
-                resolve();
-            };
-            image.src = photos[role];
-        });
-    }
-
-    async function restoreDraft() {
-        let draft;
-        try {
-            draft = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
-        } catch (_) {
-            try { sessionStorage.removeItem(storageKey); } catch (storageError) { /* Storage is disabled. */ }
-            return;
-        }
-
-        if (!draft || draft.version !== 1 || String(draft.user_id) !== String(form.dataset.userId)) return;
-
-        form.dataset.submissionId = typeof draft.submission_id === 'string' ? draft.submission_id : form.dataset.submissionId;
-        fields.scanner.value = typeof draft.scanner === 'string' ? draft.scanner : '';
-        fields.plate.value = typeof draft.plate === 'string' ? draft.plate : '';
-        fields.cone.value = typeof draft.cone === 'string' ? draft.cone : '';
-        fields.delivery.checked = draft.delivery === true;
-        fields.resident.value = typeof draft.resident === 'string' ? draft.resident : '';
-        if (window.jQuery && window.jQuery.fn && typeof window.jQuery.fn.select2 === 'function') {
-            window.jQuery(fields.resident).val(fields.resident.value).trigger('change.select2');
-        }
-        tokenizer = Array.isArray(draft.tokens) ? draft.tokens : [];
-        nombreManual = typeof draft.manual_name === 'string' ? draft.manual_name : '';
-        photos = Object.assign(photos, draft.photos || {});
-        roles.forEach(function (role) {
-            if (typeof photos[role] !== 'string' || !photos[role].startsWith('data:image/')) photos[role] = null;
-            window[photoFields[role]] = photos[role] || undefined;
-        });
-
-        if (draft.pending_submission && typeof draft.pending_submission === 'object' && draft.attempt_sent === true) {
-            pendingSubmission = draft.pending_submission;
-            saveAttempted = true;
-            lockedForRetry = true;
-        }
-
-        renderVisitor();
-        if (typeof draft.manual_name_input === 'string') fields.manualName.value = draft.manual_name_input;
-        await Promise.all(roles.map(role => setPhoto(role, photos[role])));
-        if (fields.resident.value) loadResidentDetails(fields.resident.value);
-        if (tokenizer.length || nombreManual || fields.plate.value) {
-            displayMessage(lockedForRetry
-                ? 'El último intento pudo haberse guardado. Reintente para confirmar el resultado; los datos quedarán bloqueados durante la verificación.'
-                : 'Se recuperó el borrador de esta pestaña.', 'success');
-        }
-        updateSaveButton();
-    }
-
-    function splitScannerData(value) {
-        let parts = String(value).replace(/[\]|]/g, '|').split('|');
-        if (parts[0] && parts[0].length > 10) {
-            parts[0] = parts[0].slice(-8);
-            parts.splice(6, 1);
-        }
-        return parts;
-    }
-
-    function showManualDialog() {
-        if (window.jQuery && window.jQuery.fn.modal) {
-            window.jQuery('#modalimg').modal('show');
-        } else {
-            const modal = document.getElementById('modalimg');
-            modal.classList.add('show');
-            modal.style.display = 'block';
-            modal.setAttribute('aria-hidden', 'false');
-        }
-    }
-
-    function hideManualDialog() {
-        if (window.jQuery && window.jQuery.fn.modal) {
-            window.jQuery('#modalimg').modal('hide');
-        } else {
-            const modal = document.getElementById('modalimg');
-            modal.classList.remove('show');
-            modal.style.display = 'none';
-            modal.setAttribute('aria-hidden', 'true');
-        }
-    }
-
-    function clearVisitorDetails() {
-        tokenizer = [];
-        nombreManual = '';
-        fields.manualName.value = '';
-        ['iniciales', '1nombre', '2nombre', '1apellido', '2apellido', 'fechanac', 'cui',
-            'telefonoEmergencia', 'tipo', 'ndocument', 'fechavec', 'horaentrada'].forEach(function (id) {
-            document.getElementById(id).textContent = '';
-        });
-        document.getElementById('icon').hidden = true;
-        document.getElementById('ocultar').hidden = false;
-        roles.forEach(function (role) { setPhoto(role, null); });
-        scheduleDraftSave();
-    }
-
-    function displayValidationErrors(result) {
-        const errors = result && result.errors ? Object.keys(result.errors).reduce(function (messages, key) {
-            const value = result.errors[key];
-            return messages.concat(Array.isArray(value) ? value : [String(value)]);
-        }, []) : [];
-        displayMessage(result && result.message ? result.message : 'Revise los datos y vuelva a intentarlo.', 'error', errors);
-    }
-
-    function collectSubmission() {
-        const manual = nombreManual.trim();
-        const payload = {
-            submission_id: form.dataset.submissionId,
-            residente: fields.resident.value,
-            placa: fields.plate.value.trim(),
-            cono: fields.cone.value.trim(),
-            tokens: tokenizer,
-            es_repartidor: fields.delivery.checked ? '1' : '0',
-            nombreManual: manual,
-            photo1: photos.licencia,
-            photo2: photos.placa,
-            photo3: photos.visitante
-        };
-        const errors = [];
-
-        if (!payload.residente) errors.push('Seleccione el número de casa.');
-        if (!payload.placa) errors.push('Ingrese la placa del vehículo.');
-        else if (payload.placa.length > 8) errors.push('La placa no puede superar los 8 caracteres.');
-        if (!payload.cono) errors.push('Ingrese el número de cono.');
-        else if (payload.cono.length > 20) errors.push('El número de cono no puede superar los 20 caracteres.');
-        if (manual && manual.length > 30) errors.push('El nombre no puede superar los 30 caracteres.');
-        if (!manual && tokenizer.length !== 11) errors.push('Escanee la licencia o complete el ingreso manual del visitante.');
-        if (!manual && tokenizer.length === 11 && (!tokenizer[0] || !tokenizer[1] || !tokenizer[2] || !tokenizer[4] || !tokenizer[6] || !tokenizer[7] || !tokenizer[8])) {
-            errors.push('La licencia no contiene todos los datos necesarios. Vuelva a escanearla.');
-        }
-
-        roles.forEach(function (role) {
-            if (enabledPhotos[role] && !(role === 'licencia' && manual) && !payload[photoFields[role]]) {
-                const labels = { licencia: 'licencia', placa: 'placa', visitante: 'visitante' };
-                errors.push('Tome la foto de ' + labels[role] + ' antes de guardar.');
+            originalBackup=JSON.parse(sessionStorage.getItem(storageKey));
+            if(originalBackup) {
+                restoring=true;
+                component.call('restoreDraft',backupMetadata(originalBackup)).catch(()=>{});
+                return;
             }
-        });
+        } catch (_) { /* A blocked local store still permits server recovery. */ }
+        component.call('recover').catch(()=>{});
+    });
 
-        return { payload: payload, errors: errors };
-    }
-
-    function prepareFormData(payload) {
-        const data = new FormData();
-        Object.keys(payload).forEach(function (key) {
-            if (key === 'tokens') {
-                if (Array.isArray(payload.tokens)) {
-                    payload.tokens.forEach(function (token, index) { data.append('tokens[' + index + ']', token || ''); });
-                }
-            } else if (payload[key] !== null && payload[key] !== undefined) {
-                data.append(key, String(payload[key]));
+    function widgets() {
+        const select = document.getElementById('selectResidente');
+        if (window.jQuery?.fn.select2) {
+            const jq = window.jQuery(select);
+            if (!jq.data('select2')) {
+                jq.select2({theme:'bootstrap4',placeholder:'Seleccione número de casa'});
+                jq.on('change.vehicleVisit', () => {
+                    edits.set('residente', ++revision);
+                    // Only cancel a superseded selection binding, never an action
+                    // that can register a visit or finish a file upload.
+                    const message = component.messageInTransit;
+                    if (message && message.updateQueue.every(action => action.type === 'syncInput')
+                        && message.updateQueue.some(action => action.type === 'syncInput' && action.payload.name === 'residente')) {
+                        if (transportRequest) { transportRequest.superseded = true; transportRequest.controller.abort(); }
+                    }
+                    component.sync('residente', select.value);
+                    scheduleBackup();
+                });
             }
-        });
-        return data;
+            // A newer unsent selection must survive an earlier response.
+            if (!component.messageInTransit && !component.updateQueue.length) jq.val(component.data.residente || '').trigger('change.select2');
+            jq.prop('disabled', !!select.closest('fieldset')?.disabled);
+        }
+        const modal = document.getElementById('modalimg');
+        if (window.jQuery?.fn.modal) {
+            const instance = window.jQuery(modal).data('bs.modal');
+            if (instance?._isTransitioning) return;
+            window.jQuery(modal).modal(component.data.modalOpen ? 'show' : 'hide');
+        }
     }
+    if (window.jQuery) window.jQuery('#modalimg').on('shown.bs.modal hidden.bs.modal', widgets);
+    window.Livewire.hook('message.received', (message, owner) => {
+        if (owner !== component) return;
+        const sent = requestRevisions.get(message) || 0;
+        preservedEdits.set(message, boundInputs().filter(({name}) => (edits.get(name) || 0) > sent)
+            .map(({element,name}) => ({name,value:inputValue(element)})));
+    });
+    window.Livewire.hook('message.processed', (message, owner) => {
+        if (owner !== component) return;
+        for (const {name,value} of preservedEdits.get(message) || []) {
+            const binding = boundInputs().find(item => item.name === name);
+            if (binding) { writeValue(binding.element,value); component.set(name,value,true); }
+        }
+        preservedEdits.delete(message);
+        widgets(); backup();
+    });
 
-    // The budget includes headers AND the complete body, across the CSRF retry.
-    async function fetchJsonWithTimeout(url, options, deadline, limitMs) {
-        const remaining = Math.min(limitMs, deadline - Date.now());
-        if (remaining <= 0) throw new DOMException('Tiempo de espera agotado', 'AbortError');
+    // Isolated transport guard. It forwards the unmodified native Livewire
+    // envelope; it never constructs a visitor payload or interprets save results.
+    async function fetchJson(url, options, deadline, limit, externalSignal) {
         const controller = new AbortController();
+        const abort = () => controller.abort();
+        if (externalSignal) {
+            if (externalSignal.aborted) abort();
+            else externalSignal.addEventListener('abort',abort,{once:true});
+        }
+        const remaining = Math.min(limit, deadline-Date.now());
+        if (remaining <= 0) throw new DOMException('Tiempo de espera agotado','AbortError');
         let timer;
         try {
             return await Promise.race([
-                (async function () {
-                    const response = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+                (async () => {
+                    const response = await fetch(url,{...options,signal:controller.signal});
                     const text = await response.text();
-                    let result = null;
-                    try {
-                        result = JSON.parse(text);
-                        if (typeof result === 'string') result = JSON.parse(result);
-                    } catch (_) { /* Invalid JSON cannot confirm a registration. */ }
-                    return { response: response, result: result };
+                    let data; try { data=JSON.parse(text); } catch (_) { data=null; }
+                    return {response,data};
                 })(),
-                new Promise(function (_, reject) {
-                    timer = window.setTimeout(function () {
-                        controller.abort();
-                        reject(new DOMException('Tiempo de espera agotado', 'AbortError'));
-                    }, remaining);
-                })
+                new Promise((_, reject) => { timer=setTimeout(() => {abort();reject(new DOMException('Tiempo de espera agotado','AbortError'));},remaining); }),
             ]);
         } finally {
-            window.clearTimeout(timer);
+            clearTimeout(timer);
+            externalSignal?.removeEventListener('abort',abort);
         }
     }
-
-    async function getSessionState(deadline) {
-        const reply = await fetchJsonWithTimeout(form.dataset.sessionUrl, {
-            method: 'GET',
-            credentials: 'same-origin',
-            cache: 'no-store',
-            headers: { Accept: 'application/json' }
-        }, deadline, 10000);
-        const response = reply.response;
-        if (response.status === 401 || response.status === 403) {
-            const error = new Error('session');
-            error.sessionExpired = true;
-            throw error;
-        }
-        if (!response.ok) throw new Error('session-check');
-        const result = reply.result;
-        if (!result || typeof result !== 'object') throw new Error('session-check');
-        if (String(result.user_id) !== String(form.dataset.userId)) {
-            const error = new Error('account-changed');
-            error.accountChanged = true;
-            throw error;
-        }
-        if (typeof result.csrf_token !== 'string' || !result.csrf_token) throw new Error('csrf-token');
-        form.dataset.csrfToken = result.csrf_token;
-        return result.csrf_token;
+    async function refreshCsrf(deadline) {
+        const {response,data} = await fetchJson(form.dataset.sessionUrl, {
+            credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'},
+        },deadline,10000);
+        if (!response.ok || !data || typeof data.csrf_token !== 'string') throw new Error('session-unavailable');
+        window.livewire_token = data.csrf_token;
+        return data.csrf_token;
     }
-
-    async function postSubmission(payload, csrfToken, deadline) {
-        return fetchJsonWithTimeout(form.dataset.saveUrl, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
-            body: prepareFormData(payload)
-        }, deadline, 60000);
-    }
-
-    function completeRegistration(result) {
-        const id = result && result.id;
-        if (!(typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id)))) return false;
-
-        const url = result.redirect_url || form.dataset.detailTemplate.replace('__VISIT_ID__', encodeURIComponent(id));
-        const target = new URL(url, window.location.href);
-        if (target.origin !== window.location.origin || !target.pathname.includes('/visit/detailvisit/')) return false;
-
-        registrationComplete = true;
-        saving = false;
-        updateSaveButton();
-        displayMessage('La visita quedó registrada.', 'success');
-        window.clearTimeout(alertTimer);
-        const link = document.createElement('a');
-        link.href = target.href;
-        link.textContent = ' Abrir el detalle de la visita';
-        messageBox.appendChild(link);
-        removeDraft();
-        window.location.replace(target.href);
-        return true;
-    }
-
-    function setUncertainState(message) {
-        saving = false;
-        lockedForRetry = true;
-        saveAttempted = true;
-        updateSaveButton();
-        displayMessage(message + ' Reintente para verificarlo; se usará el mismo envío y no se duplicará la visita.', 'error');
-        saveDraft();
-    }
-
-    function resetSubmission() {
-        lockedForRetry = false;
-        pendingSubmission = null;
-        saveAttempted = false;
-    }
-
-    async function submitForm(event) {
-        event.preventDefault();
-        if (saving || registrationComplete) return;
-        const retryingUncertainSubmission = lockedForRetry;
-        if (lockedForRetry && !pendingSubmission) {
-            setUncertainState('No se puede recuperar el envío anterior. Revise el listado de visitas antes de iniciar otro registro.');
-            return;
-        }
-
-        let payload = pendingSubmission;
-        if (!lockedForRetry) {
-            const collected = collectSubmission();
-            if (collected.errors.length) {
-                displayMessage('Revise estos datos antes de guardar:', 'error', collected.errors);
-                messageBox.focus();
-                return;
-            }
-            payload = collected.payload;
-            pendingSubmission = payload;
-            saveAttempted = false;
-        }
-
-        const deadline = Date.now() + 60000;
-        let mayHaveSaved = retryingUncertainSubmission;
-        saving = true;
-        updateSaveButton();
-        clearMessage();
-        saveDraft();
+    const connection = Object.create(component.connection);
+    component.connection = connection;
+    connection.sendMessage = async function (message) {
+        const controller = new AbortController(), request = {controller,superseded:false};
+        transportRequest = request;
+        requestRevisions.set(message,revision);
+        const longRequest = message.updateQueue.some(action => ['save','recover','restoreDraft'].includes(action.method));
+        const deadline = Date.now()+(longRequest?60000:10000);
+        const body = JSON.stringify(message.payload());
+        inFlight = true; backup();
         try {
-            let csrfToken = await getSessionState(deadline);
-            mayHaveSaved = saveAttempted = true;
-            saveDraft();
-            let reply = await postSubmission(payload, csrfToken, deadline);
-            if (reply.response.status === 419) {
-                // Only this rejected POST is known not to have saved. An older
-                // uncertain attempt must remain protected during session renewal.
-                mayHaveSaved = saveAttempted = retryingUncertainSubmission;
-                saveDraft();
-                csrfToken = await getSessionState(deadline);
-                mayHaveSaved = saveAttempted = true;
-                saveDraft();
-                reply = await postSubmission(payload, csrfToken, deadline);
+            let token = longRequest ? await refreshCsrf(deadline) : window.livewire_token;
+            let reply;
+            for (let attempt=0;attempt<2;attempt++) {
+                reply = await fetchJson(form.dataset.livewireUrl, {
+                    method:'POST',credentials:'same-origin',body,
+                    headers:{Accept:'application/json','Content-Type':'application/json','X-Livewire':'true','X-CSRF-TOKEN':token},
+                },deadline,longRequest?60000:10000,controller.signal);
+                if (reply.response.status!==419 || attempt===1) break;
+                token = await refreshCsrf(deadline);
             }
-
-            const response = reply.response;
-            const result = reply.result;
-            if (response.ok && completeRegistration(result)) return;
-            if (response.ok) {
-                setUncertainState('El servidor respondió, pero no confirmó el registro con una respuesta válida.');
-                return;
-            }
-
-            const rejected = [401, 403, 413, 419, 422].includes(response.status);
-            const notSaved = result && result.outcome === 'not_saved';
-            if (retryingUncertainSubmission || (!rejected && !notSaved)) {
-                setUncertainState(result && result.message ? result.message : 'El servidor no confirmó el resultado del guardado.');
-                if ([401, 419].includes(response.status)) addLoginLink();
-                return;
-            }
-
-            resetSubmission();
-            if ([401, 403, 419].includes(response.status)) {
-                displayMessage('Su sesión venció o ya no es válida. Inicie sesión en otra pestaña y luego vuelva aquí para guardar.', 'error');
-                addLoginLink();
-            } else if (response.status === 413) {
-                displayMessage('Las fotos son demasiado grandes para enviarse juntas. Vuelva a tomarlas y trate de guardar nuevamente.', 'error');
-            } else if (response.status === 422) {
-                displayValidationErrors(result);
-            } else {
-                displayMessage(result.message || 'No se guardó la visita. Sus datos y fotos siguen en el formulario; vuelva a intentarlo.', 'error');
-            }
-        } catch (error) {
-            if (mayHaveSaved) {
-                setUncertainState(error.sessionExpired || error.accountChanged
-                    ? 'La sesión cambió o venció y el guardado pendiente aún no se confirmó.'
-                    : (error.name === 'AbortError'
-                        ? 'El guardado agotó el límite de 60 segundos y aún no se puede confirmar el resultado.'
-                        : 'Se interrumpió la conexión durante el guardado.'));
-            } else {
-                resetSubmission();
-                displayMessage(error.accountChanged
-                    ? 'La sesión pertenece a otra cuenta. Recupere la visita con la cuenta con que la comenzó.'
-                    : (error.sessionExpired
-                        ? 'Su sesión venció. Inicie sesión en otra pestaña y luego vuelva aquí para reintentar.'
-                        : 'No se pudo verificar la sesión a tiempo. Revise la conexión; sus datos se conservaron y puede reintentar.'), 'error');
-            }
-            if (error.sessionExpired) addLoginLink();
+            if (!reply.response.ok || !reply.data?.serverMemo || !Array.isArray(reply.data.effects?.dirty)
+                || typeof reply.data.serverMemo.checksum !== 'string') throw new Error('unconfirmed-response');
+            connection.onMessage(message,reply.data);
+        } catch (_) {
+            if (!request.superseded) { form.inert=true; transportAlert.hidden=false; }
+            if (component.messageInTransit===message) component.messageSendFailed();
+            if (component.updateQueue.length) setTimeout(() => component.fireMessage(),0);
         } finally {
-            saving = false;
-            updateSaveButton();
-            saveDraft();
+            if (transportRequest===request) transportRequest=null;
+            inFlight=false; backup();
         }
-    }
-
-    function handleScannerKey(event) {
-        if (event.key !== 'Enter') return;
-        event.preventDefault();
-        if (saving || lockedForRetry) return;
-
-        const scannedValue = fields.scanner.value;
-        fields.scanner.value = '';
-        clearVisitorDetails();
-        tokenizer = splitScannerData(scannedValue);
-
-        if (tokenizer.length === 11) {
-            renderVisitor();
-            clearMessage();
-            scheduleDraftSave();
-            return;
-        }
-
-        tokenizer = [];
-        renderVisitor();
-        displayMessage('No se pudo leer la licencia. Revise el código e intente escanearlo nuevamente o utilice el ingreso manual.', 'error');
-        showManualDialog();
-        scheduleDraftSave();
-    }
-
-    function handleManualSave() {
-        if (saving || lockedForRetry) return;
-        const manualName = fields.manualName.value.trim();
-        if (!manualName) {
-            fields.manualName.focus();
-            displayMessage('Ingrese el nombre del visitante para continuar.', 'error');
-            return;
-        }
-
-        tokenizer = [];
-        nombreManual = manualName;
-        roles.forEach(function (role) { setPhoto(role, null); });
-        renderVisitor();
-        hideManualDialog();
-        clearMessage();
-        scheduleDraftSave();
-    }
-
-    async function loadResidentDetails(id) {
-        const version = ++residentLookupVersion;
-        const errorMessage = 'No se pudieron cargar los datos de la casa. Verifique su conexión; la visita sigue en el formulario.';
-        const houseField = document.getElementById('ftelefono');
-        const addressField = document.getElementById('direccion');
-        // Clear the previous house immediately, including when selection is cleared.
-        houseField.value = '';
-        addressField.value = '';
-        if (messageBox.textContent === errorMessage) clearMessage();
-        if (!id) return;
-
+    };
+    // Livewire 2's upload XHR has no timeout/error listener. Preserve its upload
+    // protocol and progress callbacks while bounding the request for this form.
+    component.uploadManager.makeRequest = async function (name, body, method, url, headers, retrievePaths) {
+        const deadline = Date.now()+60000;
         try {
-            const url = new URL(form.dataset.residentUrl, window.location.origin);
-            url.searchParams.set('id', id);
-            const reply = await fetchJsonWithTimeout(url.href, {
-                credentials: 'same-origin', headers: { Accept: 'application/json' }
-            }, Date.now() + 10000, 10000);
-            // A late response must never replace the currently selected resident.
-            if (version !== residentLookupVersion || String(fields.resident.value) !== String(id)) return;
-            const resident = reply.result;
-            if (!reply.response.ok || !resident || typeof resident !== 'object' || Array.isArray(resident)
-                || (resident.id !== undefined && String(resident.id) !== String(id))) throw new Error('resident');
-            houseField.value = resident.Codigo ?? '';
-            addressField.value = resident.Direccion ?? '';
-        } catch (_) {
-            if (version !== residentLookupVersion || String(fields.resident.value) !== String(id)) return;
-            displayMessage(errorMessage, 'error');
-        }
+            let token = await refreshCsrf(deadline), reply;
+            for (let attempt=0;attempt<2;attempt++) {
+                reply = await new Promise((resolve,reject) => {
+                    const xhr=new XMLHttpRequest();xhr.open(method,url);
+                    xhr.timeout=Math.max(1,deadline-Date.now());
+                    Object.entries({...headers,'X-CSRF-TOKEN':token}).forEach(([key,value]) => xhr.setRequestHeader(key,value));
+                    xhr.upload.addEventListener('progress',event => {
+                        event.detail={progress:Math.round(event.loaded*100/event.total)};
+                        this.uploadBag.first(name).progressCallback(event);
+                    });
+                    xhr.onload=() => {let data;try{data=JSON.parse(xhr.responseText);}catch(_){data=null;}resolve({status:xhr.status,data});};
+                    xhr.onerror=xhr.ontimeout=xhr.onabort=() => reject(new Error('upload-network'));
+                    xhr.send(body);
+                });
+                if (reply.status!==419 || attempt===1) break;
+                token=await refreshCsrf(deadline);
+            }
+            if (reply.status<200 || reply.status>=300 || !reply.data) throw new Error('upload-response');
+            const paths=retrievePaths(reply.data);
+            if (!Array.isArray(paths)) throw new Error('upload-response');
+            component.call('finishUpload',name,paths,this.uploadBag.first(name).multiple).catch(() => {});
+        } catch (_) {component.call('uploadErrored',name,null,this.uploadBag.first(name).multiple).catch(() => {});}
+    };
+
+    function dataUriFile(data, role) {
+        const comma=data.indexOf(','), mime=data.slice(5,data.indexOf(';'));
+        const decoded=atob(data.slice(comma+1)), bytes=new Uint8Array(decoded.length);
+        for(let i=0;i<decoded.length;i++) bytes[i]=decoded.charCodeAt(i);
+        return new File([bytes],role+'.'+(mime==='image/png'?'png':'jpg'),{type:mime});
     }
-
-    function cameraControls() {
-        const enabledRoles = roles.filter(function (role) { return enabledPhotos[role]; });
-        const captureButton = document.getElementById('capture-btn');
-        if (enabledRoles.length === 0) {
-            captureButton.hidden = true;
-            return;
+    function uploadPhoto(generation, role, data) {
+        imageBackup[role]=data; window[photoFields[role]]=data; backup();
+        component.upload('uploads.'+generation+'.'+role,dataUriFile(data,role),()=>{},
+            () => component.call('cameraFailed',generation,[role]).catch(()=>{}),()=>{});
+    }
+    window.addEventListener('vehicle:reset-cameras', event => {
+        activeGeneration=event.detail.generation;imageBackup={};
+        roles.forEach(role => {window[photoFields[role]]=undefined;});backup();
+    });
+    window.addEventListener('vehicle:restore-photos', event => {
+        activeGeneration=event.detail.generation;
+        const source=event.detail.source==='pending_submission'?originalBackup?.pending_submission:originalBackup?.photos;
+        const missing=[];
+        for(const role of event.detail.roles) {
+            const data=source?.[role] || source?.[photoFields[role]];
+            if(typeof data==='string' && data.startsWith('data:image/')) uploadPhoto(activeGeneration,role,data);
+            else missing.push(role);
         }
-
-        const mediaDevices = navigator.mediaDevices;
-        if (!mediaDevices || typeof mediaDevices.getUserMedia !== 'function' || typeof mediaDevices.enumerateDevices !== 'function') {
-            displayMessage('Este navegador no permite abrir la cámara. Verifique los permisos o la conexión segura del sitio.', 'error');
-            captureButton.disabled = true;
-            return;
+        if(missing.length) component.call('cameraFailed',activeGeneration,missing).catch(()=>{});
+    });
+    window.addEventListener('vehicle:capture', async event => {
+        const {generation,roles:requested}=event.detail;
+        activeGeneration=generation;
+        const deadline=Date.now()+10000;
+        while(!leftPage && activeGeneration===generation) {
+            const ready=requested.every(role=>cameras[role] && videoEls[role].videoWidth && videoEls[role].videoHeight && videoEls[role].readyState>=HTMLMediaElement.HAVE_CURRENT_DATA);
+            if(ready || Date.now()>=deadline || (cameraInitializationComplete && requested.some(role=>!cameras[role]))) break;
+            await new Promise(resolve=>setTimeout(resolve,80));
         }
-
-        (async function () {
-            let permissionStream;
+        if(leftPage || activeGeneration!==generation) return;
+        const failed=[];
+        for(const role of requested) {
+            const video=videoEls[role],canvas=canvasEls[role];
+            if(!cameras[role] || !video.videoWidth || video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA){failed.push(role);continue;}
             try {
-                permissionStream = await mediaDevices.getUserMedia({ video: true, audio: false });
-                permissionStream.getTracks().forEach(function (track) { track.stop(); });
-                const devices = (await mediaDevices.enumerateDevices()).filter(function (device) { return device.kind === 'videoinput'; });
-                const byId = Object.fromEntries(devices.map(function (device) { return [device.deviceId, device]; }));
-                const byLabel = Object.fromEntries(devices.map(function (device) { return [device.label, device]; }));
-                const wanted = {
-                    licencia: form.dataset.cameraLicencia,
-                    placa: form.dataset.cameraPlaca,
-                    visitante: form.dataset.cameraVisitante
-                };
-                const streamsByDevice = new Map();
-                const missing = [];
-
-                for (const role of enabledRoles) {
-                    let deviceId = wanted[role];
-                    if (deviceId && byLabel[deviceId]) deviceId = byLabel[deviceId].deviceId;
-                    if (!deviceId || !byId[deviceId]) {
-                        const alternative = devices.find(function (device) { return !streamsByDevice.has(device.deviceId); }) || devices[0];
-                        deviceId = alternative ? alternative.deviceId : null;
-                    }
-                    if (!deviceId) {
-                        missing.push(role);
-                        continue;
-                    }
-
-                    try {
-                        // Open each physical camera once, even if all photo roles
-                        // explicitly select the same device (or only one exists).
-                        if (!streamsByDevice.has(deviceId)) {
-                            streamsByDevice.set(deviceId, mediaDevices.getUserMedia({
-                                video: { deviceId: { exact: deviceId } }, audio: false
-                            }));
-                        }
-                        const stream = await streamsByDevice.get(deviceId);
-                        const video = videoEls[role];
-                        video.muted = true;
-                        video.playsInline = true;
-                        video.srcObject = stream;
-                        cameras[role] = stream;
-                        await video.play();
-                        if (!video.videoWidth || !video.videoHeight) missing.push(role);
-                    } catch (_) {
-                        missing.push(role);
-                    }
-                }
-
-                captureButton.disabled = !enabledRoles.some(function (role) { return cameras[role] && videoEls[role].videoWidth; });
-                if (missing.length) {
-                    displayMessage('No se pudo abrir la cámara de ' + missing.join(', ') + '. Revise los permisos y vuelva a cargar esta pantalla.', 'error');
-                }
-            } catch (_) {
-                if (permissionStream) permissionStream.getTracks().forEach(function (track) { track.stop(); });
-                captureButton.disabled = true;
-                displayMessage('No se pudo solicitar acceso a las cámaras. Autorice las cámaras y vuelva a cargar la pantalla; los demás datos se conservarán.', 'error');
-            }
-        })();
-
-        captureButton.addEventListener('click', function () {
-            if (saving || lockedForRetry) return;
-            const failures = [];
-            enabledRoles.forEach(function (role) {
-                if (role === 'licencia' && nombreManual) return;
-                const video = videoEls[role];
-                const canvas = canvasEls[role];
-                if (!cameras[role] || !video.videoWidth || !video.videoHeight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-                    failures.push(role);
-                    return;
-                }
-
-                try {
-                    const scale = Math.min(1, 1280 / video.videoWidth, 960 / video.videoHeight);
-                    canvas.width = Math.round(video.videoWidth * scale);
-                    canvas.height = Math.round(video.videoHeight * scale);
-                    const context = canvas.getContext('2d');
-                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                    if (!dataUrl || dataUrl === 'data:,') throw new Error('empty-frame');
-                    photos[role] = dataUrl;
-                    window[photoFields[role]] = dataUrl;
-                    video.hidden = true;
-                    canvas.hidden = false;
-                } catch (_) {
-                    failures.push(role);
-                }
-            });
-
-            if (failures.length) {
-                displayMessage('No se pudo capturar ' + failures.join(', ') + '. Revise las cámaras e intente nuevamente.', 'error');
-            } else {
-                displayMessage('Fotos capturadas y guardadas en el borrador de esta pestaña.', 'success');
-            }
-            scheduleDraftSave();
-        });
-    }
-
-    form.addEventListener('submit', submitForm);
-    fields.scanner.addEventListener('keydown', handleScannerKey);
-    function handleResidentChange() {
-        loadResidentDetails(fields.resident.value);
-        scheduleDraftSave();
-    }
-    // Select2 emits a jQuery change, which does not reach native addEventListener.
-    // jQuery handles both native and Select2 changes without two lookups.
-    if (typeof window.jQuery === 'function') {
-        window.jQuery(fields.resident).on('change.vehicleVisit', handleResidentChange);
-    } else {
-        fields.resident.addEventListener('change', handleResidentChange);
-    }
-    document.getElementById('guardarManual').addEventListener('click', handleManualSave);
-    document.getElementById('abrirIngresoManual').addEventListener('click', showManualDialog);
-    mutableControls.forEach(function (control) {
-        control.addEventListener('input', scheduleDraftSave);
-        control.addEventListener('change', scheduleDraftSave);
-    });
-
-    if (cancelLink) {
-        cancelLink.addEventListener('click', function (event) {
-            if (saving) {
-                event.preventDefault();
-                return;
-            }
-            if (lockedForRetry && !window.confirm('Aún no se confirmó el último guardado. La visita podría existir; revise el listado antes de cancelarla. ¿Desea salir?')) {
-                event.preventDefault();
-                return;
-            }
-            removeDraft();
-        });
-    }
-
-    window.addEventListener('pagehide', function () {
-        saveDraft();
-        new Set(Object.values(cameras)).forEach(function (stream) {
-            if (stream) stream.getTracks().forEach(function (track) { track.stop(); });
-        });
-    });
-
-    if (window.jQuery && window.jQuery.fn && typeof window.jQuery.fn.select2 === 'function') {
-        try {
-            window.jQuery('#selectResidente').select2({ theme: 'bootstrap4', placeholder: 'Seleccione número de casa' });
-        } catch (_) {
-            displayMessage('La búsqueda de residentes no está disponible; puede elegir la casa de la lista.', 'error');
+                const scale=Math.min(1,1280/video.videoWidth,960/video.videoHeight);
+                canvas.width=Math.round(video.videoWidth*scale);canvas.height=Math.round(video.videoHeight*scale);
+                canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
+                const data=canvas.toDataURL('image/jpeg',0.85);
+                if(!data || data==='data:,')throw new Error('empty-frame');
+                uploadPhoto(generation,role,data);
+            }catch(_){failed.push(role);}
         }
-    }
+        if(failed.length)component.call('cameraFailed',generation,failed).catch(()=>{});
+    });
 
-    restoreDraft();
-    cameraControls();
-    updateSaveButton();
+    async function openCameras() {
+        if(!enabledRoles.length){cameraInitializationComplete=true;return;}
+        const media=navigator.mediaDevices;
+        if(!media?.getUserMedia || !media.enumerateDevices){cameraInitializationComplete=true;return;}
+        let permission;
+        try {
+            permission=await media.getUserMedia({video:true,audio:false});
+            permission.getTracks().forEach(track=>track.stop());permission=null;
+            const devices=(await media.enumerateDevices()).filter(device=>device.kind==='videoinput');
+            const opened=new Map();
+            for(const role of enabledRoles) {
+                const wanted=form.dataset['camera'+role[0].toUpperCase()+role.slice(1)];
+                const device=devices.find(item=>item.deviceId===wanted || item.label===wanted)
+                    || devices.find(item=>!opened.has(item.deviceId)) || devices[0];
+                if(!device)continue;
+                try {
+                    if(!opened.has(device.deviceId))opened.set(device.deviceId,media.getUserMedia({video:{deviceId:{exact:device.deviceId}},audio:false}));
+                    const stream=await opened.get(device.deviceId);
+                    if(leftPage){stream.getTracks().forEach(track=>track.stop());continue;}
+                    cameras[role]=stream;videoEls[role].srcObject=stream;
+                    await videoEls[role].play();
+                }catch(_){/* The capture event reports unavailable roles to PHP. */}
+            }
+        }catch(_){permission?.getTracks().forEach(track=>track.stop());}
+        finally{cameraInitializationComplete=true;}
+    }
+    function backupMetadata(value) {
+        return JSON.parse(JSON.stringify(value,(_,item)=>typeof item==='string'&&item.startsWith('data:image/')?'browser-file':item));
+    }
+    widgets();openCameras();
+    if(originalBackup) {
+        // Image bytes use native uploads, not component properties or a JSON send.
+        const metadata=backupMetadata(originalBackup);
+        component.call('restoreDraft',metadata).catch(()=>{});
+    } else backup();
 }());

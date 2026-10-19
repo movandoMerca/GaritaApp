@@ -12,7 +12,7 @@ if (parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) !== '/_visits_test_control'
 }
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 header('Content-Type: application/json');
-if (app()->environment() !== 'testing' || config('database.connections.mysql.database') !== 'garita_visits_test'
+if (!app()->environment('testing', 'visits-browser') || config('database.connections.mysql.database') !== 'garita_visits_test'
     || config('filesystems.disks.visits.driver') !== 'local'
     || ($_SERVER['HTTP_X_VISITS_TEST'] ?? '') !== 'isolated-visits-test') {
     http_response_code(403);

@@ -12,6 +12,7 @@ async function fakeCamera(settings) {
             const id = constraints.video?.deviceId?.exact || 'permission';
             window.cameraTest.calls.push(id);
             if (settings.deny && id !== 'permission') throw new DOMException('Denied', 'NotAllowedError');
+            if (settings.delay && id !== 'permission') await new Promise(resolve=>setTimeout(resolve,settings.delay));
             const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480;
             const ctx = canvas.getContext('2d'); ctx.fillStyle = '#eee'; ctx.fillRect(0,0,640,480);
             ctx.fillStyle = '#123'; ctx.font = '30px Arial'; ctx.fillText('CAMARA SINTETICA ' + id,20,220);
@@ -33,6 +34,7 @@ async function fakeCamera(settings) {
                 { name: 'one available camera replaces unavailable IDs', devices: ['shared'], cameras: ['old1','old2','old3'], groups: [0,0,0] },
                 { name: 'two cameras with one shared assignment', devices: ['shared','other'], cameras: ['shared','shared','other'], groups: [0,0,1] },
                 { name: 'three distinct cameras', devices: ['a','b','c'], cameras: ['a','b','c'], groups: [0,1,2] },
+                { name: 'automatic capture waits for camera startup', devices: ['shared'], cameras: ['shared','shared','shared'], groups: [0,0,0], delay: 2000 },
                 { name: 'shared camera fails only one open attempt', devices: ['shared'], cameras: ['shared','shared','shared'], deny: true }
             ];
             for (const [index, settings] of cases.entries()) {
@@ -50,10 +52,11 @@ async function fakeCamera(settings) {
                     await page.goto(base + '/login'); await page.fill('[name=username]','admin'); await page.fill('[name=password]','visits-test-only');
                     await Promise.all([page.waitForURL(url => !url.pathname.includes('/login')), page.click('button[type=submit]')]);
                     await page.goto(base + '/visit/create');
-                    if (settings.deny) await page.getByText(/No se pudo abrir la cámara de licencia, placa, visitante/).waitFor();
                     await page.fill('#placa', (channel === 'chrome' ? 'SC' : 'SE') + 'C' + index); await page.fill('#cono','1'); await page.selectOption('#selectResidente','1');
                     await page.fill('#data',code); await page.press('#data','Enter');
+                    if (settings.delay) assert.equal(await page.evaluate(()=>!!window.photo1),false,'scan happens before camera is ready');
                     if (settings.deny) {
+                        await page.getByText(/No se pudo capturar licencia, placa, visitante/).waitFor();
                         const calls = await page.evaluate(() => window.cameraTest.calls.filter(id => id !== 'permission'));
                         assert.deepEqual(calls,['shared']);
                         await page.click('#guardar'); await page.getByText('Revise estos datos antes de guardar:').waitFor();
@@ -67,7 +70,14 @@ async function fakeCamera(settings) {
                         });
                         assert.equal(preview.calls.length,new Set(settings.groups).size);
                         for (let i=0;i<3;i++) for (let j=0;j<3;j++) assert.equal(preview.same[i][j], settings.groups[i] === settings.groups[j]);
-                        await page.click('#capture-btn');
+                        await page.waitForFunction(()=>[window.photo1,window.photo2,window.photo3].every(photo=>photo?.startsWith('data:image/jpeg;base64,')));
+                        await page.waitForFunction(()=>{const c=document.querySelector('[data-vehicle-visit-component]').__livewire;return Object.keys(c.data.photoVersions).length===3&&!c.messageInTransit&&!c.updateQueue.length;});
+                        const beforeRender=await page.evaluate(()=>({streams:[1,2,3].map(n=>document.querySelector('#video'+n).srcObject),photos:[photo1,photo2,photo3]}).photos);
+                        await page.evaluate(()=>document.querySelector('[data-vehicle-visit-component]').__livewire.call('$refresh'));
+                        assert.deepEqual(await page.evaluate(()=>[photo1,photo2,photo3]),beforeRender);
+                        assert.equal(await page.locator('img[id^=photo-preview-]').count(),3);
+                        assert.equal(await page.evaluate(()=>[1,2,3].every(n=>document.querySelector('#canvas'+n).hidden)),true);
+                        assert.deepEqual(await page.evaluate(()=>window.cameraTest.calls.filter(id=>id!=='permission')),preview.calls);
                         assert.equal(await page.evaluate(() => [photo1,photo2,photo3].every(photo => photo.startsWith('data:image/jpeg;base64,'))),true);
                         await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
                         const stopped = await page.evaluate(() => window.cameraTest.stopped);

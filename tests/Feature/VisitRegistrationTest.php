@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Livewire\VehicleVisit;
 use App\Models\log;
 use App\Models\User;
 use App\Models\Visit;
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
+use Livewire\Livewire;
 
 class VisitRegistrationTest extends TestCase
 {
@@ -30,6 +32,7 @@ class VisitRegistrationTest extends TestCase
             'id' => 1, 'Codigo' => 'A-12', 'Nombres' => 'Residente', 'Apellidos' => 'Prueba',
             'Direccion' => 'Casa A-12', 'estado' => 1,
         ]);
+        Storage::fake('local');
         Storage::fake('visits');
         Storage::fake('config');
         $this->actingAs(User::findOrFail(1));
@@ -60,6 +63,187 @@ class VisitRegistrationTest extends TestCase
         return 'data:image/png;base64,' . base64_encode(base64_decode(
             'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII='
         ));
+    }
+
+    public function test_only_vehicle_registration_loads_livewire_and_keeps_camera_setup_guard()
+    {
+        $this->get(route('create.visits'))->assertOk()->assertSeeLivewire('vehicle-visit')
+            ->assertSee('/livewire/livewire.js', false)->assertSee('selectResidente');
+        $this->get(route('create.pedestrian.visits'))->assertOk()->assertDontSee('/livewire/livewire.js', false);
+        DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
+        DB::table('users')->where('id', 1)->update(['camara_id_placa' => null]);
+        $this->actingAs(User::findOrFail(1))->get(route('create.visits'))->assertRedirect(route('camaras.user'));
+    }
+
+    private function livewireVehicle(bool $manual = false)
+    {
+        $component = Livewire::test(VehicleVisit::class)
+            ->set('residente', '1')->set('placa', 'P123ABC')->set('cono', '12');
+        if ($manual) return $component->set('nombreManualInput', 'VISITANTE MANUAL')->call('confirmManual');
+        return $component->set('codigoLicencia', implode('|', $this->vehicle()['tokens']))->call('scanLicense');
+    }
+
+    private function uploadVehiclePhoto($component, string $role, ?int $generation = null)
+    {
+        return $component->set('uploads.'.($generation ?? $component->get('captureGeneration')).'.'.$role,
+            UploadedFile::fake()->createWithContent($role.'.png', base64_decode(explode(',', $this->vehiclePhoto())[1])));
+    }
+
+    public function test_livewire_saves_each_photo_configuration_and_retries_the_same_registration()
+    {
+        foreach (range(0, 7) as $mask) {
+            $flags = [$mask & 1 ? 1 : 0, $mask & 2 ? 1 : 0, $mask & 4 ? 1 : 0];
+            DB::table('config')->where('id', 1)->update(array_combine(
+                ['enable_fotolicencia', 'enable_fotoplaca', 'enable_fotovisitante'], $flags
+            ));
+            $manual = $mask % 2 === 0;
+            $component = $this->livewireVehicle($manual)->set('es_repartidor', $mask % 3 === 0);
+            foreach (['licencia', 'placa', 'visitante'] as $index => $role) {
+                if ($flags[$index] && !($manual && $index === 0)) $this->uploadVehiclePhoto($component, $role);
+            }
+            $uuid = $component->get('submissionId');
+            $component->call('save')->assertHasNoErrors()->assertSet('status', 'saved');
+            $visit = Visit::where('submission_id', $uuid)->firstOrFail();
+            $component->assertRedirect(route('detailv.visits', ['id' => $visit->id]));
+            $this->assertSame(1, $visit->created_by);
+            $this->assertSame('vehicular', $visit->tipo_visita);
+            $this->assertSame($mask % 3 === 0, $visit->es_repartidor);
+            $this->assertSame($manual ? 'VISITANTE MANUAL' : 'JUAN', $visit->Primer_Nombre);
+            foreach (['path_licencia', 'path_placa', 'path_visitante'] as $index => $column) {
+                $expected = (bool) $flags[$index] && !($manual && $index === 0);
+                $this->assertSame($expected, (bool) $visit->$column);
+                if ($expected) Storage::disk('visits')->assertExists($visit->$column);
+            }
+            $this->assertStringNotContainsString('data:image/', json_encode($component->payload['serverMemo']));
+            $component->call('save')->assertHasNoErrors();
+            $this->assertDatabaseCount('visitas', $mask + 1);
+            $this->assertDatabaseCount('logs', $mask + 1);
+        }
+    }
+
+    public function test_livewire_validates_on_the_server_and_reads_current_photo_settings()
+    {
+        $component = Livewire::test(VehicleVisit::class)->call('save')->assertHasErrors(['placa', 'cono', 'tokens', 'residente'])
+            ->assertSet('status', 'editing');
+        $component = $this->livewireVehicle();
+        DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
+        $component->call('save')->assertHasErrors('photo2')->assertSet('status', 'editing');
+        $this->uploadVehiclePhoto($component, 'placa');
+        $component->call('save')->assertHasNoErrors();
+        $this->assertDatabaseCount('visitas', 1);
+    }
+
+    public function test_livewire_resident_binding_renders_house_and_clears_inactive_residents()
+    {
+        $component = Livewire::test(VehicleVisit::class)->set('residente', '1')
+            ->assertSet('houseCode', 'A-12')->assertSet('address', 'Casa A-12');
+        DB::table('residentes')->where('id', 1)->update(['estado' => 0]);
+        $component->set('residente', '1')->assertHasErrors('residente')->assertSet('houseCode', '')->assertSet('address', '');
+        $component->call('save')->assertHasErrors('residente');
+        $this->assertDatabaseCount('visitas', 0);
+    }
+
+    public function test_livewire_failed_photo_storage_does_not_register_and_can_retry()
+    {
+        DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
+        $component = $this->livewireVehicle();
+        $this->uploadVehiclePhoto($component, 'placa');
+        $disk = Storage::disk('visits');
+        $failedDisk = \Mockery::mock(\Illuminate\Filesystem\FilesystemAdapter::class);
+        $failedDisk->shouldReceive('put')->once()->andReturn(false);
+        $failedDisk->shouldReceive('delete')->once()->andReturn(true);
+        Storage::set('visits', $failedDisk);
+        $component->call('save')->assertHasErrors('registro')->assertSet('status', 'editing');
+        $this->assertDatabaseCount('visitas', 0);
+        $this->assertDatabaseCount('logs', 0);
+        Storage::set('visits', $disk);
+        $component->call('save')->assertHasNoErrors()->assertSet('status', 'saved');
+        $this->assertDatabaseCount('visitas', 1);
+    }
+
+    public function test_livewire_rejects_owner_and_derived_updates_and_changed_or_expired_accounts()
+    {
+        Livewire::test(VehicleVisit::class)->set('ownerId', 2)->assertForbidden();
+        Livewire::test(VehicleVisit::class)->set('visitor.Primer_Nombre', 'ALTERADO')->assertForbidden();
+        $component = Livewire::test(VehicleVisit::class);
+        $other = User::factory()->create(['username' => 'other-livewire', 'status' => 1]);
+        $this->actingAs($other);
+        $component->call('save')->assertForbidden();
+        $this->assertDatabaseCount('visitas', 0);
+        $this->actingAs(User::findOrFail(1));
+        $component = Livewire::test(VehicleVisit::class);
+        auth()->logout();
+        $component->call('recover')->assertUnauthorized();
+        Livewire::test(VehicleVisit::class)->assertUnauthorized();
+    }
+
+    public function test_long_unused_license_field_is_ignored_in_livewire_legacy_endpoint_and_backup()
+    {
+        $tokens = $this->vehicle()['tokens'];
+        $tokens[10] = str_repeat('METADATO NO PERSISTIDO ', 20);
+        $component = Livewire::test(VehicleVisit::class)->set('residente', '1')->set('placa', 'P123ABC')->set('cono', '1')
+            ->set('codigoLicencia', implode('|', $tokens))->call('scanLicense')->assertHasNoErrors()->assertSet('visitor.Primer_Nombre', 'JUAN');
+        $this->assertStringNotContainsString('METADATO', json_encode($component->payload['serverMemo']));
+        $component->call('save')->assertHasNoErrors()->assertSet('status', 'saved');
+        $this->postJson(route('save.visits'), $this->vehicle(['tokens' => $tokens]))->assertOk();
+        Livewire::test(VehicleVisit::class)->call('restoreDraft', [
+            'version' => 1, 'user_id' => '1', 'submission_id' => (string) Str::uuid(),
+            'tokens' => $tokens, 'resident' => '1', 'plate' => 'P123ABC', 'cone' => '2',
+        ])->assertHasNoErrors()->assertSet('visitor.Primer_Nombre', 'JUAN')->call('save')->assertHasNoErrors();
+        $this->assertDatabaseCount('visitas', 3);
+    }
+
+    public function test_license_formats_and_spanish_validation_without_silent_truncation()
+    {
+        $parser = app(\App\Services\VehicleLicense::class);
+        $tokens = $this->vehicle()['tokens'];
+        $this->assertSame('JUAN', $parser->parse(implode(']', $tokens))['Primer_Nombre']);
+        $prefixed = $tokens; $prefixed[0] = 'PREFIJO12345678'; array_splice($prefixed, 6, 0, ['IGNORADO']);
+        $this->assertSame('12345678', $parser->parse(implode('|', $prefixed))['numeroDocumento']);
+        $tokens[2] = str_repeat('N', 31);
+        $component = Livewire::test(VehicleVisit::class)->set('codigoLicencia', implode('|', $tokens))->call('scanLicense')
+            ->assertHasErrors('Primer_Nombre')->assertSet('visitor', [])->assertSet('modalOpen', true);
+        $component->assertSee('primer nombre')->assertDontSee('tokens.');
+        $this->postJson(route('save.visits'), $this->vehicle(['tokens' => $tokens]))->assertStatus(422)
+            ->assertJsonValidationErrors('tokens.2')->assertJsonFragment(['primer nombre no puede superar los 30 caracteres.']);
+    }
+
+    public function test_late_upload_is_discarded_and_automatic_capture_is_server_requested()
+    {
+        DB::table('config')->where('id', 1)->update(['enable_fotolicencia' => 1, 'enable_fotoplaca' => 1]);
+        $component = $this->livewireVehicle()->assertDispatchedBrowserEvent('vehicle:capture');
+        $generation = $component->get('captureGeneration');
+        $component->set('nombreManualInput', 'MANUAL')->call('confirmManual');
+        $this->uploadVehiclePhoto($component, 'licencia', $generation)->assertSet('photoVersions', []);
+        $component->call('requestPhotos')->assertDispatchedBrowserEvent('vehicle:capture', [
+            'generation' => $component->get('captureGeneration'), 'roles' => ['placa'],
+        ]);
+        $this->uploadVehiclePhoto($component, 'placa');
+        $component->call('save')->assertHasNoErrors();
+        $visit = Visit::firstOrFail();
+        $this->assertNull($visit->path_licencia);
+        Storage::disk('visits')->assertExists($visit->path_placa);
+    }
+
+    public function test_frozen_server_submission_restores_immutable_fields_and_confirms_one_visit()
+    {
+        $component = $this->livewireVehicle();
+        $token = $component->get('draftToken');
+        $uuid = $component->get('submissionId');
+        $drafts = app(\App\Services\VehicleVisitDrafts::class);
+        $state = $drafts->read(1, $uuid)['state'];
+        $drafts->freeze(1, $uuid, $state);
+        $restored = Livewire::test(VehicleVisit::class)->call('restoreDraft', [
+            'version' => 2, 'user_id' => '1', 'token' => $token, 'inputs' => ['placa' => 'ALTERADO'],
+        ])->assertSet('status', 'pending')->assertSet('placa', 'P123ABC');
+        $restored->set('placa', 'OTRA')->assertHasErrors('registro');
+        $restored->call('save')->assertHasNoErrors()->assertSet('status', 'saved');
+        Livewire::test(VehicleVisit::class)->call('restoreDraft', [
+            'version' => 2, 'user_id' => '1', 'token' => $token,
+        ])->assertSet('status', 'saved');
+        $this->assertDatabaseCount('visitas', 1);
+        $this->assertDatabaseCount('logs', 1);
+        $this->assertSame('P123ABC', Visit::firstOrFail()->Placa);
     }
 
     public function test_pedestrian_registration_photo_detail_and_exit()
@@ -146,11 +330,11 @@ class VisitRegistrationTest extends TestCase
 
     public function test_pedestrian_validation_and_repeated_cui()
     {
-        $this->postJson(route('save.pedestrian.visits'), $this->pedestrian(['cui' => '123']))->assertUnprocessable()->assertJsonValidationErrors('cui');
-        $this->postJson(route('save.pedestrian.visits'), $this->pedestrian(['photo_dpi' => null]))->assertUnprocessable()->assertJsonValidationErrors('photo_dpi');
-        $this->postJson(route('save.pedestrian.visits'), $this->pedestrian(['Fecha_nac' => '1990-02-30']))->assertUnprocessable()->assertJsonValidationErrors('Fecha_nac');
+        $this->postJson(route('save.pedestrian.visits'), $this->pedestrian(['cui' => '123']))->assertStatus(422)->assertJsonValidationErrors('cui');
+        $this->postJson(route('save.pedestrian.visits'), $this->pedestrian(['photo_dpi' => null]))->assertStatus(422)->assertJsonValidationErrors('photo_dpi');
+        $this->postJson(route('save.pedestrian.visits'), $this->pedestrian(['Fecha_nac' => '1990-02-30']))->assertStatus(422)->assertJsonValidationErrors('Fecha_nac');
         DB::table('residentes')->where('id', 1)->update(['estado' => 0]);
-        $this->postJson(route('save.pedestrian.visits'), $this->pedestrian())->assertUnprocessable()->assertJsonValidationErrors('residente');
+        $this->postJson(route('save.pedestrian.visits'), $this->pedestrian())->assertStatus(422)->assertJsonValidationErrors('residente');
         $this->get(route('create.pedestrian.visits'))->assertDontSee('A-12');
         DB::table('residentes')->where('id', 1)->update(['estado' => 1]);
         $this->postJson(route('save.pedestrian.visits'), $this->pedestrian())->assertCreated();
@@ -197,7 +381,7 @@ class VisitRegistrationTest extends TestCase
             'nombreManual' => 'Visitante manual', 'tokens' => null, 'es_repartidor' => 1,
         ]))->assertOk();
         $this->assertTrue(Visit::latest('id')->first()->es_repartidor);
-        $this->postJson(route('save.visits'), $this->vehicle(['placa' => '']))->assertUnprocessable()->assertJsonValidationErrors('placa');
+        $this->postJson(route('save.visits'), $this->vehicle(['placa' => '']))->assertStatus(422)->assertJsonValidationErrors('placa');
     }
 
     public function test_vehicle_submission_id_returns_one_visit_for_repeated_requests()
@@ -298,13 +482,13 @@ class VisitRegistrationTest extends TestCase
     {
         DB::table('residentes')->where('id', 1)->update(['estado' => 0]);
         $this->postJson(route('save.visits'), $this->vehicle())
-            ->assertUnprocessable()->assertJsonValidationErrors('residente');
+            ->assertStatus(422)->assertJsonValidationErrors('residente');
 
         DB::table('residentes')->where('id', 1)->update(['estado' => 1]);
         $this->postJson(route('save.visits'), $this->vehicle(['placa' => '123456789']))
-            ->assertUnprocessable()->assertJsonValidationErrors('placa');
+            ->assertStatus(422)->assertJsonValidationErrors('placa');
         $this->postJson(route('save.visits'), $this->vehicle(['tokens' => ['123456789', 'C', 'JUAN', '', 'PEREZ', '', '01/01/1990', '01/01/2030', '1234567890101', '', '']]))
-            ->assertUnprocessable()->assertJsonValidationErrors('tokens.0');
+            ->assertStatus(422)->assertJsonValidationErrors('tokens.0');
 
         $this->assertDatabaseCount('visitas', 0);
         $this->assertDatabaseCount('logs', 0);
@@ -400,7 +584,7 @@ class VisitRegistrationTest extends TestCase
         DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
 
         $this->postJson(route('save.visits'), $this->vehicle(['photo2' => 'data:image/png;base64,bm90LWltYWdl']))
-            ->assertUnprocessable()->assertJsonValidationErrors('photo2');
+            ->assertStatus(422)->assertJsonValidationErrors('photo2');
 
         $this->assertDatabaseCount('visitas', 0);
         $this->assertDatabaseCount('logs', 0);
@@ -436,7 +620,7 @@ class VisitRegistrationTest extends TestCase
         ]);
 
         $invalidManualVisit = $this->postJson(route('save.visits'), $manualVisit);
-        $invalidManualVisit->assertUnprocessable()->assertJsonValidationErrors(['photo2', 'photo3']);
+        $invalidManualVisit->assertStatus(422)->assertJsonValidationErrors(['photo2', 'photo3']);
         $this->assertArrayNotHasKey('photo1', $invalidManualVisit->json('errors'));
 
         $manualVisit['photo2'] = $this->vehiclePhoto();
@@ -454,7 +638,7 @@ class VisitRegistrationTest extends TestCase
             'photo3' => $manualVisit['photo3'],
         ]);
         $this->postJson(route('save.visits'), $scannedVisit)
-            ->assertUnprocessable()
+            ->assertStatus(422)
             ->assertJsonValidationErrors('photo1');
     }
 
@@ -508,7 +692,7 @@ class VisitRegistrationTest extends TestCase
         $this->get(route('table.visits', array_merge($dates, $filter)))->assertSee('es_repartidor=0');
         $this->get(route('tablepdf.visits', array_merge($dates, $filter)))
             ->assertOk()->assertHeader('Content-Type', 'application/pdf');
-        $this->getJson(route('detail.visits', ['tipo_visita' => 'invalid']))->assertUnprocessable();
+        $this->getJson(route('detail.visits', ['tipo_visita' => 'invalid']))->assertStatus(422);
     }
 
     public function test_migration_preserves_legacy_records_and_is_not_repeated()

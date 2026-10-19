@@ -155,6 +155,35 @@ En el ingreso vehicular, **Es repartidor** identifica ese ingreso. Las visitas
 activas y los reportes por fecha y residente permiten filtrar tipo de visita y
 repartidor; los filtros se conservan al exportar Excel y PDF.
 
+### Registro vehicular con Livewire
+
+`/visit/create` utiliza el componente `VehicleVisit` con Livewire 2.12.8,
+compatible con Laravel 8. El formulario guarda mediante una acción Livewire;
+el servicio `VehicleVisitRegistration` valida los datos y las fotos, registra
+visita y bitácora en una transacción y reconcilia los reintentos por UUID.
+`/visit/save` conserva su contrato para formularios anteriores y utiliza ese
+mismo servicio. Detalles, egresos, reportes y registro peatonal mantienen sus rutas.
+
+El selector conserva Select2 y su buscador. Al leer una licencia válida se
+capturan automáticamente las fotografías habilitadas, esperando hasta diez
+segundos si las cámaras todavía están iniciando. **Tomar foto** permite repetir
+la captura. Un código inválido o el ingreso manual no dispara esta captura
+automática; en el ingreso manual se conserva la exclusión de la foto de licencia.
+La captura no registra la visita: el operador todavía pulsa **Guardar**.
+
+Las fotografías permanecen en el navegador hasta enviarse como argumentos de la
+acción, sin incorporarse al estado serializado de Livewire. El borrador conserva
+el formato anterior y los envíos pendientes. El transporte acotado al componente
+mantiene los límites de 10/60 segundos y la renovación CSRF de un solo intento.
+
+Al actualizar una instalación existente, ejecutar `composer install` desde el
+lock y `php artisan package:discover`. Si Docker ya tiene un volumen `vendor`,
+reconstruir la imagen no actualiza ese volumen: ejecutar también `docker compose
+exec app composer install --no-interaction` y `docker compose exec app php artisan
+package:discover`. Esta conversión no agrega migraciones. En CloudPanel conservar
+`post_max_size=20M` y comprobar que las rutas `/livewire/*` pasen por Laravel.
+Livewire se carga únicamente en el formulario vehicular.
+
 ## Pruebas del módulo de visitas
 
 La suite MySQL importa el esquema inicial en una base **descartable** llamada
@@ -295,5 +324,26 @@ node tests/browser/vehicle-resident-selection.cjs
 ```
 
 La regresión pulsa el selector real en Edge y Chrome, cambia de casa, recupera
-el borrador, simula respuestas fuera de orden y errores, y guarda con el
-residente elegido. Esta prueba nueva está pendiente de ejecución.
+el borrador, simula respuestas fuera de orden y errores, conserva ediciones
+realizadas durante una consulta y guarda con el residente elegido mediante
+Livewire. También comprueba que un render conserve el UUID del borrador.
+
+Para comprobar que un escaneo inválido no tome fotos, que un ingreso manual
+cancele una captura pendiente y que el botón permita repetir las fotos automáticas:
+
+```bash
+node tests/browser/vehicle-auto-capture.cjs
+```
+
+La suite de cámara compartida comprueba además el inicio lento de la cámara,
+la captura automática y la conservación de transmisiones y fotos tras un render
+Livewire. Ejecutar las suites de navegador secuencialmente, porque comparten la
+configuración de la instancia desechable. La suite completa de 30 registros se
+ejecuta primero sobre la fixture recién preparada; las demás suites pueden dejar
+registros abiertos intencionalmente.
+
+`tests/browser/vehicle-visit-visual.cjs` guarda cuatro referencias visuales del
+formulario vacío, el buscador abierto y los datos escaneados en escritorio/móvil.
+Requiere `VISITS_SCREENSHOT_DIR`; `VISITS_VISUAL_PHASE=before` o `after` distingue
+las capturas. La hora de ingreso cambia entre recorridos y debe excluirse de una
+comparación píxel a píxel de los estados escaneados.

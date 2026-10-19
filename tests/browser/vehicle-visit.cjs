@@ -58,7 +58,10 @@ async function fakeCamera(){
                 await page.waitForFunction(()=>!document.querySelector('#capture-btn').disabled,null,{timeout:10000}).catch(async error=>{
                     throw new Error(error.message+' '+JSON.stringify(await page.evaluate(()=>({message:document.querySelector('#responset').textContent,videos:[1,2,3].map(n=>{const v=document.querySelector('#video'+n);return {ready:v.readyState,width:v.videoWidth,stream:!!v.srcObject,paused:v.paused};})}))));
                 });
-                await page.click('#capture-btn');
+                if (manual) await page.click('#capture-btn');
+                else await page.waitForFunction(enabled=>enabled.every((on,i)=>!on||window['photo'+(i+1)]?.startsWith('data:image/jpeg;base64,')),photos);
+                await page.waitForFunction(()=>{const c=document.querySelector('[data-vehicle-visit-component]').__livewire;return !c.data.capturePending.length&&!c.messageInTransit&&!c.updateQueue.length;});
+                if (!manual) console.log('PASS automatic license photo capture: '+plate);
             }
         }
         async function save(){await Promise.all([page.waitForURL('**/visit/detailvisit/*'),page.click('#guardar')]);return Number(new URL(page.url()).pathname.split('/').pop());}
@@ -92,15 +95,15 @@ async function fakeCamera(){
         await page.fill('#nombre-manual','BORRADOR SIN CONFIRMAR');
         await page.waitForFunction(()=>{
             const key='garita.vehicle-visit.v1.'+document.querySelector('#vehicle-visit-form').dataset.userId;
-            return JSON.parse(sessionStorage.getItem(key)||'null')?.manual_name_input==='BORRADOR SIN CONFIRMAR';
+            return JSON.parse(sessionStorage.getItem(key)||'null')?.inputs?.nombreManualInput==='BORRADOR SIN CONFIRMAR';
         });
         await page.reload();
         await page.click('#abrirIngresoManual');
         assert.equal(await page.inputValue('#nombre-manual'),'BORRADOR SIN CONFIRMAR');
         await modalReady();
-        await page.locator('#modalimg [data-dismiss="modal"]').click();
+        await page.locator('#modalimg').getByRole('button',{name:'Cancelar',exact:true}).click();
         await page.locator('#modalimg').waitFor({state:'hidden'});
-        await page.click('#prueba');
+        await Promise.all([page.waitForURL(url=>url.pathname==='/home'),page.click('#prueba')]);
         console.log('PASS E2E: validation and manual name outside the form survive draft reload');
         let saved=0;
         for(let mask=0;mask<8;mask++){
@@ -109,19 +112,24 @@ async function fakeCamera(){
             const id=await save();saved++;await detail(id,manual,photos,delivery);console.log('PASS E2E camera mask: '+mask);
         }
         console.log('PASS E2E: eight camera configurations, manual/scanner, delivery, photos, list and exit');
-        for(let i=0;i<20;i++){
+        for(let i=0;i<Number(process.env.VISITS_CYCLES || 20);i++){
             const manual=i%2===0,delivery=i%3===0;
             await prepare('S'+(channel==='edge'?'E':'C')+String(i).padStart(5,'0'),manual,[1,1,1],delivery);
             const id=await save();saved++;await detail(id,manual,[1,1,1],delivery);
         }
-        console.log('PASS E2E: 20 consecutive complete vehicle registration/exit cycles');
+        console.log('PASS E2E: '+(process.env.VISITS_CYCLES || 20)+' consecutive complete vehicle registration/exit cycles');
         // A response lost AFTER the real server committed must recover the same row/photos.
         await prepare('L'+(channel==='edge'?'E':'C')+'000001',false);
         const uuid=await page.locator('#vehicle-visit-form').getAttribute('data-submission-id');
-        await page.route('**/visit/save',async route=>{const result=await route.fetch();assert.equal(result.status(),200);await route.abort('failed');},{times:1});
-        await page.click('#guardar');await page.getByText(/interrumpió la conexión durante el guardado/).waitFor();
-        await page.reload();await page.waitForFunction(()=>document.querySelector('#placa').disabled);
-        const id=await save();saved++;await detail(id,false,[1,1,1],false);
+        let lostCommittedResponse=false;
+        await page.route('**/livewire/message/vehicle-visit',async route=>{
+            if (lostCommittedResponse || !route.request().postDataJSON().updates.some(update=>update.payload.method==='save')) {await route.continue();return;}
+            lostCommittedResponse=true;
+            const result=await route.fetch();assert.equal(result.status(),200);await route.abort('failed');
+        });
+        await page.click('#guardar');await page.getByText(/Se interrumpió la comunicación/).waitFor();
+        await page.reload();await page.waitForURL('**/visit/detailvisit/*');
+        const id=Number(page.url().split('/').pop());saved++;await detail(id,false,[1,1,1],false);
         assert.equal((await control()).visits.filter(v=>v.submission_id===uuid).length,1);
         console.log('PASS E2E: lost committed response, reload, same UUID and preserved photos');
         // Concurrent requests and a duplicate submit event exercise server and UI separately.
@@ -135,13 +143,13 @@ async function fakeCamera(){
         const replies=await Promise.all([post(),post()]);
         for(const reply of replies)assert.equal(reply.status(),200,await reply.text());
         const ids=await Promise.all(replies.map(r=>r.json()));assert.equal(ids[0].id,ids[1].id);
-        let requestCount=0;const count=r=>{if(r.method()==='POST'&&new URL(r.url()).pathname==='/visit/save')requestCount++;};page.on('request',count);
+        let requestCount=0;const count=r=>{if(r.method()==='POST'&&new URL(r.url()).pathname==='/livewire/message/vehicle-visit'&&r.postDataJSON().updates.some(update=>update.payload.method==='save'))requestCount++;};page.on('request',count);
         await page.evaluate(()=>{const f=document.querySelector('#vehicle-visit-form');f.dispatchEvent(new Event('submit',{cancelable:true}));f.dispatchEvent(new Event('submit',{cancelable:true}));});
         await page.waitForURL('**/visit/detailvisit/*');assert.equal(requestCount,1);saved++;
         const after=await control();assert.equal(after.visits.length,stateBefore.visits.length+1);assert.equal(after.visit_logs,stateBefore.visit_logs+1);
         await detail(ids[0].id,false,[1,1,1],false);
         const final=await control();assert.equal(final.visits.length,initial.visits.length+saved);assert.equal(final.visit_logs,initial.visit_logs+saved);
-        assert.ok(final.visits.every(v=>v.fechaegreso), 'all created visits completed their exit');
+        assert.ok(final.visits.filter(v=>!initial.visits.some(old=>old.id===v.id)).every(v=>v.fechaegreso), 'all created visits completed their exit');
         const referenced=final.visits.flatMap(v=>[v.path_licencia,v.path_placa,v.path_visitante]).filter(Boolean).sort();
         assert.deepEqual(final.files.slice().sort(),referenced,'no missing or orphaned photos after concurrent saves');
         assert.deepEqual(errors,[]);

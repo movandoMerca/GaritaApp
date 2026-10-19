@@ -3,7 +3,7 @@
 require __DIR__ . '/../../vendor/autoload.php';
 $app = require __DIR__ . '/../../bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-if (app()->environment() !== 'testing' || config('database.connections.mysql.database') !== 'garita_visits_test'
+if (!app()->environment('testing', 'visits-browser') || config('database.connections.mysql.database') !== 'garita_visits_test'
     || config('filesystems.disks.visits.driver') !== 'local') {
     throw new RuntimeException('Only the isolated test instance with local storage is allowed.');
 }

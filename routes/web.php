@@ -64,6 +64,11 @@ Route::prefix('visit')->group(function () {
     Route::get('pedestrian/create', [PedestrianVisitController::class, 'create'])->name('create.pedestrian.visits')->middleware('auth');
     Route::post('pedestrian/save', [PedestrianVisitController::class, 'save'])->name('save.pedestrian.visits')->middleware('auth');
 
+    Route::get('draft/{uuid}/photo/{generation}/{role}', function ($uuid, $generation, $role) {
+        $photo = app(\App\Services\VehicleVisitDrafts::class)->preview((int) auth()->id(), $uuid, (int) $generation, $role);
+        return response($photo['bytes'], 200, ['Content-Type' => $photo['mime'], 'Cache-Control' => 'private, no-store']);
+    })->name('photo.draft.visits')->middleware(['auth', 'signed'])->where('generation', '[0-9]+');
+
     Route::get('create', [VisitController::class, 'create'])->name('create.visits')->middleware('auth');
     Route::get('session', [VisitController::class, 'sessionState'])->name('session.visits')->middleware('auth');
     Route::get('index', [VisitController::class, 'index'])->name('index.visits')->middleware('auth');
