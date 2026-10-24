@@ -164,8 +164,9 @@ visita y bitácora en una transacción y reconcilia los reintentos por UUID.
 `/visit/save` conserva su contrato para formularios anteriores y utiliza ese
 mismo servicio. Detalles, egresos, reportes y registro peatonal mantienen sus rutas.
 
-El selector nativo de Livewire busca por acceso telefónico, código de casa o
-nombre; conserva hasta 20 resultados y mantiene visible la selección actual.
+El selector Select2 busca por acceso telefónico, código de casa o nombre dentro
+del desplegable y carga todos los residentes activos. La selección actualiza
+No. Casa y Dirección mediante Livewire y se conserva en el borrador.
 Al leer una licencia válida se capturan automáticamente las fotografías
 habilitadas, esperando hasta diez segundos si las cámaras todavía están
 iniciando. **Tomar foto** permite repetir la captura. Un código inválido o el
@@ -333,8 +334,8 @@ ni cámaras físicas con `node --test tests/js/vehicle-camera.test.cjs`.
 
 ### Datos de la casa al elegir acceso telefónico
 
-El buscador y el selector HTML envían cambios a Livewire, que actualiza No. Casa
-y Dirección. Los cambios de búsqueda mantienen visible el residente elegido y
+Select2 envía la selección a Livewire, que actualiza No. Casa
+y Dirección. Las búsquedas mantienen visible el residente elegido y
 el respaldo local restaura su selección. Con la instancia aislada preparada,
 ejecutar:
 

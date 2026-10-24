@@ -1,4 +1,4 @@
-// Exercise the native Livewire search and resident selector in both browsers.
+// Exercise the restored Select2 search and its Livewire binding in both browsers.
 const assert = require('node:assert/strict');
 const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright-core');
 const base = process.env.VISITS_BASE_URL || 'http://localhost:18880';
@@ -15,6 +15,7 @@ if (!['localhost','127.0.0.1','web','garita-vehicle-test-web-1'].includes(new UR
             }}));
             await context.route('**/*',route=>route.request().url().startsWith(base)?route.continue():route.abort());
             const page=await context.newPage(),errors=[],requests=[];
+            page.setDefaultTimeout(10000);
             page.on('pageerror',e=>{if(page.url().includes('/visit/'))errors.push(e.message);});
             const endpoint='**/livewire/message/vehicle-visit';
             const lookup=request=>new URL(request.url()).pathname==='/livewire/message/vehicle-visit'
@@ -27,29 +28,49 @@ if (!['localhost','127.0.0.1','web','garita-vehicle-test-web-1'].includes(new UR
             await Promise.all([page.waitForURL(url=>!url.pathname.includes('/login')),page.click('button[type=submit]')]);
             await page.goto(base+'/visit/create');
             const originalUuid=await page.locator('#vehicle-visit-form').getAttribute('data-submission-id');
-            const search=page.locator('#residentSearch'),select=page.locator('#selectResidente');
+            const select=page.locator('#selectResidente');
+            async function search(value) {
+                if (!await page.locator('.select2-container--open .select2-search__field').count()) {
+                    await page.locator('#selectResidente + .select2 .select2-selection').click();
+                }
+                const input=page.locator('.select2-container--open .select2-search__field');
+                await input.fill('');
+                await input.pressSequentially(value);
+            }
+            async function choose(value) {
+                await page.evaluate(value => window.jQuery('#selectResidente').val(value).trigger('change'), value);
+            }
             async function matching(value,id,label){
-                await search.fill(value);
-                await page.waitForFunction(([id,label])=>Array.from(document.querySelector('#selectResidente').options)
-                    .some(option=>option.value===id&&option.textContent.includes(label)),[id,label]);
+                await search(value);
+                await page.locator('.select2-results__option').filter({hasText:label}).first().waitFor();
+                await page.keyboard.press('Escape');
             }
             async function details(code,address){
                 await page.waitForFunction(([code,address])=>document.querySelector('#ftelefono').value===code
                     &&document.querySelector('#direccion').value===address,[code,address],{timeout:10000});
             }
-            await search.fill('No existe');
+            await search('No existe');
             await page.getByText('No se encontraron residentes activos.').waitFor();
-            await matching('C101','1','C101');
-            await select.selectOption('1');await details('A-12','Casa A-12');
-            assert.equal(requests.length,1,'a native selection produces one Livewire resident update');
-            console.log('PASS '+channel+': searches access number and native select updates house/address');
+            await search('C101');
+            await page.locator('.select2-results__option').filter({hasText:'C101'}).click();
+            await details('A-12','Casa A-12');
+            assert.equal(requests.length,1,'a Select2 selection produces one Livewire resident update');
+            console.log('PASS '+channel+': searches access number and Select2 updates house/address');
             await matching('A-12','1','A-12');
             await matching('Segundo Residente','2','Segundo');
-            await select.selectOption('2');await details('B-34','Casa B-34');
+            await choose('2');await details('B-34','Casa B-34');
             assert.equal(requests.length,2);
-            await search.fill('sin coincidencias');
-            await page.waitForFunction(()=>document.querySelector('#residentSearch').value==='sin coincidencias'
-                &&document.querySelector('#selectResidente').options.length===2);
+            await search('sin coincidencias');
+            await page.getByText('No se encontraron residentes activos.').waitFor().catch(async error=>{
+                console.error(await page.evaluate(()=>({
+                    inputs:Array.from(document.querySelectorAll('.select2-search__field')).map(input=>({value:input.value,connected:input.isConnected})),
+                    results:document.querySelector('.select2-results')?.textContent,
+                    open:window.jQuery('#selectResidente').data('select2')?.isOpen(),
+                    resident:document.querySelector('#selectResidente').value,
+                })));
+                throw error;
+            });
+            await page.keyboard.press('Escape');
             assert.equal(await select.inputValue(),'2','changing the query keeps the selected active resident visible');
             assert.ok(await select.locator('option:checked').textContent().then(text=>text.includes('C202')));
             await page.waitForFunction(()=>JSON.parse(sessionStorage.getItem('garita.vehicle-visit.v1.'+document.querySelector('#vehicle-visit-form').dataset.userId)||'null')?.inputs?.residente==='2');
@@ -71,9 +92,9 @@ if (!['localhost','127.0.0.1','web','garita-vehicle-test-web-1'].includes(new UR
                 await route.fulfill({response:actual}).catch(()=>{});
             };
             await page.route(endpoint,delayed);
-            await select.selectOption('1');await started;
+            await choose('1');await started;
             await page.fill('#placa','EDIT123');await page.fill('#cono','98');await page.click('.switch label');
-            await select.selectOption('2');
+            await choose('2');
             release();await page.unroute(endpoint,delayed);
             await details('B-34','Casa B-34');
             assert.equal(await page.inputValue('#placa'),'EDIT123');assert.equal(await page.inputValue('#cono'),'98');
@@ -91,7 +112,7 @@ if (!['localhost','127.0.0.1','web','garita-vehicle-test-web-1'].includes(new UR
             };
             await page.route(endpoint,failing);
             await matching('C101','1','C101');
-            await select.selectOption('1');await page.locator('#vehicle-transport-alert').waitFor({state:'visible'});
+            await choose('1');await page.locator('#vehicle-transport-alert').waitFor({state:'visible'});
             assert.equal(await page.locator('#vehicle-visit-form').evaluate(element=>element.inert),true);
             await page.unroute(endpoint,failing);await page.click('#vehicle-reconnect');
             await page.locator('#vehicle-transport-alert').waitFor({state:'hidden'});
@@ -99,14 +120,14 @@ if (!['localhost','127.0.0.1','web','garita-vehicle-test-web-1'].includes(new UR
             console.log('PASS '+channel+': transport failure recovers the selected resident through the saved draft');
 
             const beforeClear=requests.length;
-            await select.selectOption('');await details('','');
+            await choose('');await details('','');
             assert.equal(requests.length,beforeClear+1);
             const beforeSelect=requests.length;
-            await matching('C101','1','C101');await select.selectOption('1');await details('A-12','Casa A-12');
+            await matching('C101','1','C101');await choose('1');await details('A-12','Casa A-12');
             assert.equal(requests.length,beforeSelect+1);
-            console.log('PASS '+channel+': native selection clears and changes without duplicate lookups');
+            console.log('PASS '+channel+': Select2 selection clears and changes without duplicate lookups');
 
-            await matching('C202','2','C202');await select.selectOption('2');await details('B-34','Casa B-34');
+            await matching('C202','2','C202');await choose('2');await details('B-34','Casa B-34');
             await page.fill('#placa',channel==='chrome'?'RESCHR':'RESEDGE');await page.fill('#cono','1');
             const code=['12345678','C','JUAN','','PEREZ','','01/01/1990','01/01/2030','1234567890101','12345678',''].join('|');
             await page.fill('#data',code);await page.press('#data','Enter');
@@ -120,7 +141,7 @@ if (!['localhost','127.0.0.1','web','garita-vehicle-test-web-1'].includes(new UR
             assert.deepEqual(posted,[],'save uses component state without a browser-built visitor payload');
             assert.match(await page.locator('body').innerText(),/Segundo\s+Residente/);
             assert.deepEqual(errors,[]);
-            console.log('PASS '+channel+': saved visit uses the resident selected natively through Livewire');
+            console.log('PASS '+channel+': saved visit uses the resident selected with Select2 through Livewire');
             await context.close();
         } finally {await browser.close();}
     }

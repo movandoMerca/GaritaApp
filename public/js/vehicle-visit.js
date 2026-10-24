@@ -33,6 +33,31 @@
     });
     manualModal.on('hidden.bs.modal.vehicleVisit', syncManualModal);
 
+    function syncResidentSelect() {
+        const select = document.getElementById('selectResidente');
+        const widget = window.jQuery(select);
+        if (!widget.data('select2')) {
+            widget.select2({theme:'bootstrap4', width:'100%', placeholder:'Buscar acceso, casa o nombre', allowClear:true,
+                matcher:(params, data)=>{
+                    const normalize=value=>String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+                    const terms=normalize(params.term).trim().split(/\s+/);
+                    return terms.every(term=>normalize(data.text).includes(term)) ? data : null;
+                },
+                language:{noResults:()=>'No se encontraron residentes activos.', searching:()=>'Buscando…'}});
+            widget.on('change.vehicleVisit', () => {
+                edits.set('residente', ++revision);
+                component.sync('residente', select.value);
+                scheduleBackup();
+            });
+        }
+        if (!component.messageInTransit && !component.updateQueue.length) {
+            const selected=String(component.data.residente || '');
+            if (widget.val() !== selected) widget.val(selected).trigger('change.select2');
+        }
+        const disabled=Boolean(select.closest('fieldset')?.disabled);
+        if (select.disabled !== disabled) widget.prop('disabled', disabled);
+    }
+
     function boundInputs() {
         return Array.from(root.querySelectorAll('input, select')).map(element => {
             const model = Array.from(element.attributes).find(attribute =>
@@ -112,6 +137,7 @@
             if (binding) { writeValue(binding.element,value); component.set(name,value,true); }
         }
         preservedEdits.delete(message);
+        syncResidentSelect();
         syncManualModal();
         backup();
     });
@@ -223,5 +249,6 @@
         const metadata=backupMetadata(originalBackup);
         component.call('restoreDraft',metadata).catch(()=>{});
     } else backup();
+    syncResidentSelect();
     syncManualModal();
 }());

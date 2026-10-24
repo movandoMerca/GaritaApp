@@ -460,7 +460,10 @@ class VehicleVisit extends Component
             }
         }
 
-        $residents = $query->orderBy('Codigo')->orderBy('id')->limit(20)->get($columns);
+        // Select2 searches the full active list locally, as in the original form.
+        // Keep the bounded server query for clients using the transient search.
+        if ($search !== '') $query->limit(20);
+        $residents = $query->orderBy('Codigo')->orderBy('id')->get($columns);
         $selectedId = is_scalar($this->residente) && ctype_digit((string) $this->residente)
             ? $this->residente
             : null;

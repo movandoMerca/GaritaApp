@@ -68,8 +68,8 @@ class VisitRegistrationTest extends TestCase
     public function test_only_vehicle_registration_loads_livewire_and_keeps_camera_setup_guard()
     {
         $this->get(route('create.visits'))->assertOk()->assertSeeLivewire('vehicle-visit')
-            ->assertSee('/livewire/livewire.js', false)->assertSee('selectResidente')->assertSee('residentSearch')
-            ->assertDontSee('select2-bootstrap4-theme');
+            ->assertSee('/livewire/livewire.js', false)->assertSee('selectResidente')->assertSee('data-livewire-input="residente"', false)
+            ->assertSee('select2-bootstrap4.min.css')->assertDontSee('id="residentSearch"', false);
         $this->get(route('create.pedestrian.visits'))->assertOk()->assertDontSee('/livewire/livewire.js', false);
         DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
         DB::table('users')->where('id', 1)->update(['camara_id_placa' => null]);
@@ -144,7 +144,7 @@ class VisitRegistrationTest extends TestCase
         $this->assertDatabaseCount('visitas', 0);
     }
 
-    public function test_livewire_resident_search_matches_fields_limits_results_and_keeps_selection_visible()
+    public function test_select2_has_all_active_residents_and_server_search_keeps_selection_visible()
     {
         foreach (range(2, 23) as $id) {
             DB::table('residentes')->insert([
@@ -156,8 +156,8 @@ class VisitRegistrationTest extends TestCase
 
         $response = $this->get(route('create.visits'))->assertOk();
         preg_match_all('~<option\s+value="[^"]*"~', $response->getContent(), $options);
-        $this->assertCount(21, $options[0], 'The native select contains its placeholder and at most 20 residents.');
-        $response->assertDontSee('HOUSE-23');
+        $this->assertCount(24, $options[0], 'Select2 must search every active resident, including those past the old 20-result limit.');
+        $response->assertSee('HOUSE-23');
 
         $component = Livewire::test(VehicleVisit::class)->set('residentSearch', 'PHONE-2')
             ->assertSee('PHONE-2 | HOUSE-02 | Visitante 2');

@@ -94,23 +94,15 @@
                                     <div class="flex-grow-1 font-weight-bold text-dark-50 py-2 py-lg-2 mr-5">
                                         <div class="row">
                                             <div class="col-md">
-                                                <label for="residentSearch">Acceso telefónico / residente</label>
-                                                <div class="mb-2">
-                                                    <input wire:model.debounce.300ms="residentSearch" data-no-backup
-                                                        id="residentSearch" type="search" autocomplete="off"
-                                                        class="form-control visit-input"
-                                                        placeholder="Buscar acceso, casa o nombre"
-                                                        maxlength="100"
-                                                        aria-label="Buscar residente por acceso telefónico, casa o nombre">
-                                                </div>
-                                                <div class="input-group input-group-sm">
+                                                <label for="selectResidente">Acceso telefónico / residente</label>
+                                                <div class="input-group input-group-sm" wire:ignore>
                                                     <div class="input-group-prepend">
                                                         <span class="input-group-text input-group-solid bg-primary">
                                                             <i class="fa fa-phone text-white"></i>
                                                         </span>
                                                     </div>
-                                                    <select wire:model="residente" id="selectResidente" class="form-control visit-input">
-                                                        <option value="">Seleccione un residente</option>
+                                                    <select data-livewire-input="residente" id="selectResidente" class="form-control visit-input">
+                                                        <option value=""></option>
                                                         @foreach ($residents as $resident)
                                                             <option value="{{ $resident->id }}" @if ((string) $residente === (string) $resident->id) selected @endif>
                                                                 {{ $resident->accesotel }} | {{ $resident->Codigo }} | {{ $resident->fullname(false) }}</option>

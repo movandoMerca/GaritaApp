@@ -3,6 +3,7 @@
 
 @section('styles')
     @livewireStyles
+    <link rel="stylesheet" href="{{ asset('vendor/select2/select2-bootstrap4.min.css') }}">
 @endsection
 @section('content')
     @livewire('vehicle-visit')
