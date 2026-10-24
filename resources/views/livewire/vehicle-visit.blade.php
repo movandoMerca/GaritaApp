@@ -16,7 +16,7 @@
         data-camera-visitante="{{ Auth()->user()->camara_id_visitante }}"
         data-photo-licencia="@json($config->enable_fotolicencia == 1)"
         data-photo-placa="@json(($config->enable_fotoplaca ?? 1) == 1)"
-        data-photo-visitante="@json($config->enable_fotovisitante == 1)" @if ($modalOpen) inert aria-hidden="true" @endif>
+        data-photo-visitante="@json($config->enable_fotovisitante == 1)">
         <div class="card">
             <div class="card card-custom  gutter-b">
                 <div class="card-body">
@@ -295,25 +295,29 @@
             </div>
         </div>
     </form>
-    @if ($modalOpen)
-        <div class="vehicle-manual-backdrop" wire:click.self="closeManual" wire:keydown.escape.window="closeManual">
-            <section class="vehicle-manual-dialog" id="modalimg" role="dialog" aria-modal="true"
-                aria-labelledby="manual-dialog-title" tabindex="-1">
+    <div wire:ignore.self class="modal fade bd-example-modal-lg" tabindex="-1" role="dialog"
+        data-backdrop="static" aria-labelledby="manual-dialog-title" id="modalimg" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
                 <div class="modal-header custom-bg text-white">
-                    <h3 class="modal-title text-white" id="manual-dialog-title">Ingreso manual</h3>
+                    <span id="manual-dialog-title">Ingreso Manual</span>
                 </div>
                 <div class="modal-body">
-                    <label for="nombre-manual">Nombre del visitante</label>
-                    <input wire:model.defer="nombreManualInput" wire:keydown.enter.prevent="confirmManual" type="text"
-                        class="form-control visit-input" id="nombre-manual" maxlength="30" autocomplete="off" autofocus>
-                    @error('nombreManualInput') <div class="text-danger mt-2">{{ $message }}</div> @enderror
-                    <div class="text-center my-8">
+                    <div class="row">
+                        <div class="col-sm-12">
+                            <label for="nombre-manual">Nombre del visitante</label>
+                            <input wire:model.defer="nombreManualInput" wire:keydown.enter.prevent="confirmManual" type="text"
+                                class="form-control visit-input" id="nombre-manual" maxlength="30" autocomplete="off">
+                            @error('nombreManualInput') <div class="text-danger mt-2">{{ $message }}</div> @enderror
+                        </div>
+                    </div>
+                    <div class="text-center my-12">
                         <button type="button" class="btn btn-secondary" wire:click="closeManual">Cancelar</button>
                         <button wire:click="confirmManual" wire:loading.attr="disabled" type="button" id="guardarManual"
                             class="btn btn-primary visit-input">Guardar</button>
                     </div>
                 </div>
-            </section>
+            </div>
         </div>
-    @endif
+    </div>
 </div>

@@ -15,6 +15,24 @@
     let inFlight = false, revision = 0;
     const edits = new Map(), preservedEdits = new WeakMap(), requestRevisions = new WeakMap();
 
+    const manualModal = window.jQuery('#modalimg');
+    manualModal.modal({backdrop:'static', keyboard:true, show:false});
+    function syncManualModal() {
+        const instance = manualModal.data('bs.modal');
+        if (instance?._isTransitioning) return;
+        if (Boolean(instance?._isShown) !== Boolean(component.data.modalOpen)) {
+            manualModal.modal(component.data.modalOpen ? 'show' : 'hide');
+        }
+    }
+    manualModal.on('hide.bs.modal.vehicleVisit', () => {
+        if (component.data.modalOpen) component.call('closeManual').catch(() => {});
+    });
+    manualModal.on('shown.bs.modal.vehicleVisit', () => {
+        syncManualModal();
+        if (component.data.modalOpen) document.getElementById('nombre-manual')?.focus();
+    });
+    manualModal.on('hidden.bs.modal.vehicleVisit', syncManualModal);
+
     function boundInputs() {
         return Array.from(root.querySelectorAll('input, select')).map(element => {
             const model = Array.from(element.attributes).find(attribute =>
@@ -94,6 +112,7 @@
             if (binding) { writeValue(binding.element,value); component.set(name,value,true); }
         }
         preservedEdits.delete(message);
+        syncManualModal();
         backup();
     });
 
@@ -204,4 +223,5 @@
         const metadata=backupMetadata(originalBackup);
         component.call('restoreDraft',metadata).catch(()=>{});
     } else backup();
+    syncManualModal();
 }());
