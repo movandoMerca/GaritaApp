@@ -92,12 +92,16 @@
                 permission.getTracks().forEach(track => track.stop());
                 permission = null;
                 const devices = (await media.enumerateDevices()).filter(device => device.kind === 'videoinput');
-                const opened = new Map();
+                const opened = new Map(), assignments = new Map();
                 for (const role of enabledRoles) {
                     const wanted = form.dataset['camera'+role[0].toUpperCase()+role.slice(1)];
-                    const device = devices.find(item => item.deviceId === wanted || item.label === wanted)
+                    // Device IDs change between origins; keep repeated saved
+                    // assignments shared even when their original ID is missing.
+                    const device = assignments.get(wanted)
+                        || devices.find(item => item.deviceId === wanted || item.label === wanted)
                         || devices.find(item => !opened.has(item.deviceId)) || devices[0];
                     if (!device) continue;
+                    if (wanted) assignments.set(wanted, device);
                     try {
                         if (!opened.has(device.deviceId)) {
                             opened.set(device.deviceId, media.getUserMedia({video:{deviceId:{exact:device.deviceId}}, audio:false}));

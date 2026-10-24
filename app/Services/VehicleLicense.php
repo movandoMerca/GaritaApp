@@ -7,13 +7,21 @@ use Illuminate\Validation\ValidationException;
 
 class VehicleLicense
 {
+    const DOCUMENT_MAX_LENGTH = 64;
+
     const FIELDS = ['numeroDocumento', 'tipoLicencia', 'Primer_Nombre', 'Segundo_Nombre',
         'Primer_Apellido', 'Segundo_Apellido', 'Fecha_nac', 'Fecha_vencimiento', 'cui', 'tel_emergencia'];
 
     public function parse(string $code): array
     {
         $parts = explode('|', str_replace(']', '|', trim($code)));
-        if (isset($parts[0]) && mb_strlen($parts[0]) > 10) {
+        // The legacy scanner adds a prefix and one field before the dates.
+        // Check that layout so a long document in the normal format stays intact.
+        $datePattern = '/\A(?:\d{1,2}[\/-]\d{1,2}[\/-]\d{4}|\d{4}-\d{2}-\d{2})\z/';
+        if (count($parts) >= 12 && mb_strlen($parts[0]) > 10
+            && !preg_match($datePattern, trim($parts[6]))
+            && preg_match($datePattern, trim($parts[7]))
+            && preg_match($datePattern, trim($parts[8]))) {
             $parts[0] = mb_substr($parts[0], -8);
             array_splice($parts, 6, 1);
         }
@@ -35,7 +43,7 @@ class VehicleLicense
             $visitor[$field] = is_string($value) ? trim($value) : $value;
         }
         $rules = [];
-        foreach ([8, 2, 30, 70, 45, 70, 20, 20, 13, 8] as $index => $max) {
+        foreach ([self::DOCUMENT_MAX_LENGTH, 2, 30, 70, 45, 70, 20, 20, 13, 8] as $index => $max) {
             $rules[self::FIELDS[$index]] = (in_array($index, [3, 5, 9]) ? 'nullable' : 'required')."|string|max:$max";
         }
         Validator::make($visitor, $rules, [

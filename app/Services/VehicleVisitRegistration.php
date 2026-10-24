@@ -84,7 +84,7 @@ class VehicleVisitRegistration
         };
 
         $tokenRules = $esIngresoManual ? [] : [
-            'tokens.0' => 'required|string|max:8',
+            'tokens.0' => 'required|string|max:'.VehicleLicense::DOCUMENT_MAX_LENGTH,
             'tokens.1' => 'required|string|max:2',
             'tokens.2' => 'required|string|max:30',
             'tokens.3' => 'nullable|string|max:70',

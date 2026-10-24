@@ -238,6 +238,28 @@ class VisitRegistrationTest extends TestCase
             ->assertJsonValidationErrors('tokens.2')->assertJsonFragment(['primer nombre no puede superar los 30 caracteres.']);
     }
 
+    public function test_scanner_delimiters_keep_full_documents_up_to_sixty_four_characters_when_saving()
+    {
+        foreach (['123456789', '1234567890', str_repeat('1', 64)] as $document) {
+            foreach (['|', ']'] as $delimiter) {
+                $tokens = [$document, 'M', 'JUAN', 'CARLOS', 'PEREZ', 'LOPEZ',
+                    '17-08-1987', '17-08-2029', '1234567890101', '12345678', str_repeat('0', 200)];
+                $component = Livewire::test(VehicleVisit::class)
+                    ->set('residente', '1')->set('placa', 'P123ABC')->set('cono', '1')
+                    ->set('codigoLicencia', implode($delimiter, $tokens))->call('scanLicense')
+                    ->assertHasNoErrors()->assertSet('visitor.numeroDocumento', $document)
+                    ->assertSet('visitor.Primer_Nombre', 'JUAN')->assertSet('visitor.Fecha_nac', '17-08-1987');
+                $uuid = $component->get('submissionId');
+                $component->call('save')->assertHasNoErrors()->assertSet('status', 'saved');
+                $this->assertDatabaseHas('visitas', ['submission_id' => $uuid, 'numeroDocumento' => $document]);
+                $this->assertStringNotContainsString(str_repeat('0', 200), json_encode($component->payload['serverMemo']));
+                $this->postJson(route('save.visits'), $this->vehicle(['tokens' => $tokens]))->assertOk();
+            }
+        }
+        $this->assertDatabaseCount('visitas', 12);
+        $this->assertDatabaseCount('logs', 12);
+    }
+
     public function test_late_upload_is_discarded_and_automatic_capture_is_server_requested()
     {
         DB::table('config')->where('id', 1)->update(['enable_fotolicencia' => 1, 'enable_fotoplaca' => 1]);
@@ -517,7 +539,7 @@ class VisitRegistrationTest extends TestCase
         DB::table('residentes')->where('id', 1)->update(['estado' => 1]);
         $this->postJson(route('save.visits'), $this->vehicle(['placa' => '123456789']))
             ->assertStatus(422)->assertJsonValidationErrors('placa');
-        $this->postJson(route('save.visits'), $this->vehicle(['tokens' => ['123456789', 'C', 'JUAN', '', 'PEREZ', '', '01/01/1990', '01/01/2030', '1234567890101', '', '']]))
+        $this->postJson(route('save.visits'), $this->vehicle(['tokens' => [str_repeat('1', 65), 'C', 'JUAN', '', 'PEREZ', '', '01/01/1990', '01/01/2030', '1234567890101', '', '']]))
             ->assertStatus(422)->assertJsonValidationErrors('tokens.0');
 
         $this->assertDatabaseCount('visitas', 0);

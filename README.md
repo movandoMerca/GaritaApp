@@ -189,6 +189,13 @@ package:discover`. Esta conversión no agrega migraciones. En CloudPanel conserv
 `post_max_size=20M` y comprobar que las rutas `/livewire/*` pasen por Laravel.
 Livewire se carga únicamente en el formulario vehicular.
 
+El escáner admite `|` y `]` como separadores. Los documentos del formato normal
+se conservan completos hasta 64 caracteres, incluidas las licencias de nueve
+dígitos. La migración `2026_10_24_000001_expand_vehicle_document_number` amplía
+la columna sin modificar los registros existentes; ejecutarla antes de publicar
+la validación actualizada. El formato antiguo con prefijo y un campo extra
+se reconoce por la posición de las fechas, sin recortar documentos largos normales.
+
 ## Pruebas del módulo de visitas
 
 La suite MySQL importa el esquema inicial en una base **descartable** llamada
@@ -306,6 +313,9 @@ docker compose -p garita-vehicle-test -f docker-compose.visits-test.yml down -v
 
 Se puede configurar la misma cámara para licencia, placa y visitante. La página
 comparte una sola transmisión entre las vistas y la libera una sola vez al salir.
+Si el identificador guardado cambia al pasar de localhost al dominio de producción,
+las asignaciones repetidas siguen compartiendo la misma cámara de respaldo,
+incluso cuando el navegador enumera varios dispositivos.
 Si una cámara configurada ya no está disponible, reutiliza una disponible cuando
 no hay suficientes dispositivos distintos. Al capturar las tres fotos juntas con
 una cámara compartida, las tres corresponden al encuadre de ese momento.
@@ -317,6 +327,9 @@ y fallo de apertura. Ejecuta Chrome y Edge contra la instancia aislada anterior:
 ```bash
 node tests/browser/vehicle-shared-camera.cjs
 ```
+
+La regresión del cambio de dominio también se puede comprobar sin base de datos
+ni cámaras físicas con `node --test tests/js/vehicle-camera.test.cjs`.
 
 ### Datos de la casa al elegir acceso telefónico
 

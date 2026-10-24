@@ -31,6 +31,7 @@ async function fakeCamera(settings) {
             const cases = [
                 { name: 'one camera assigned three times', devices: ['shared'], cameras: ['shared','shared','shared'], groups: [0,0,0] },
                 { name: 'one camera selected by label', devices: ['shared'], cameras: ['Label shared','Label shared','Label shared'], groups: [0,0,0] },
+                { name: 'shared ID from another origin with several devices', devices: ['shared','other','virtual'], cameras: ['old-shared','old-shared','old-shared'], groups: [0,0,0] },
                 { name: 'one available camera replaces unavailable IDs', devices: ['shared'], cameras: ['old1','old2','old3'], groups: [0,0,0] },
                 { name: 'two cameras with one shared assignment', devices: ['shared','other'], cameras: ['shared','shared','other'], groups: [0,0,1] },
                 { name: 'three distinct cameras', devices: ['a','b','c'], cameras: ['a','b','c'], groups: [0,1,2] },
