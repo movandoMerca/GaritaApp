@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Visit;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log as LaravelLog;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -207,7 +208,7 @@ class VisitRegistrationTest extends TestCase
         Livewire::test(VehicleVisit::class)->assertUnauthorized();
     }
 
-    public function test_long_unused_license_field_is_ignored_in_livewire_legacy_endpoint_and_backup()
+    public function test_long_unused_license_field_is_ignored_in_livewire_legacy_endpoint_and_reconnect()
     {
         $tokens = $this->vehicle()['tokens'];
         $tokens[10] = str_repeat('METADATO NO PERSISTIDO ', 20);
@@ -216,10 +217,9 @@ class VisitRegistrationTest extends TestCase
         $this->assertStringNotContainsString('METADATO', json_encode($component->payload['serverMemo']));
         $component->call('save')->assertHasNoErrors()->assertSet('status', 'saved');
         $this->postJson(route('save.visits'), $this->vehicle(['tokens' => $tokens]))->assertOk();
-        Livewire::test(VehicleVisit::class)->call('restoreDraft', [
-            'version' => 1, 'user_id' => '1', 'submission_id' => (string) Str::uuid(),
-            'tokens' => $tokens, 'resident' => '1', 'plate' => 'P123ABC', 'cone' => '2',
-        ])->assertHasNoErrors()->assertSet('visitor.Primer_Nombre', 'JUAN')->call('save')->assertHasNoErrors();
+        Livewire::test(VehicleVisit::class)->set('residente', '1')->set('placa', 'P123ABC')->set('cono', '2')
+            ->set('codigoLicencia', implode(']', $tokens))->call('scanLicense')->call('recover')
+            ->assertHasNoErrors()->assertSet('visitor.Primer_Nombre', 'JUAN')->call('save')->assertHasNoErrors();
         $this->assertDatabaseCount('visitas', 3);
     }
 
@@ -277,25 +277,39 @@ class VisitRegistrationTest extends TestCase
         Storage::disk('visits')->assertExists($visit->path_placa);
     }
 
-    public function test_frozen_server_submission_restores_immutable_fields_and_confirms_one_visit()
+    public function test_frozen_submission_keeps_immutable_fields_and_confirms_one_visit_in_the_current_form()
     {
         $component = $this->livewireVehicle();
-        $token = $component->get('draftToken');
         $uuid = $component->get('submissionId');
         $drafts = app(\App\Services\VehicleVisitDrafts::class);
-        $state = $drafts->read(1, $uuid)['state'];
-        $drafts->freeze(1, $uuid, $state);
-        $restored = Livewire::test(VehicleVisit::class)->call('restoreDraft', [
-            'version' => 2, 'user_id' => '1', 'token' => $token, 'inputs' => ['placa' => 'ALTERADO'],
-        ])->assertSet('status', 'pending')->assertSet('placa', 'P123ABC');
-        $restored->set('placa', 'OTRA')->assertHasErrors('registro');
-        $restored->call('save')->assertHasNoErrors()->assertSet('status', 'saved');
-        Livewire::test(VehicleVisit::class)->call('restoreDraft', [
-            'version' => 2, 'user_id' => '1', 'token' => $token,
-        ])->assertSet('status', 'saved');
+        $drafts->freeze(1, $uuid, $drafts->read(1, $uuid)['state']);
+        $component->call('recover')->assertSet('status', 'pending')->assertSet('placa', 'P123ABC');
+        $component->set('placa', 'OTRA')->assertHasErrors('registro');
+        $component->call('save')->assertHasNoErrors()->assertSet('status', 'saved');
+        $component->call('save')->assertSet('status', 'saved');
         $this->assertDatabaseCount('visitas', 1);
         $this->assertDatabaseCount('logs', 1);
         $this->assertSame('P123ABC', Visit::firstOrFail()->Placa);
+    }
+
+    public function test_new_vehicle_form_never_restores_an_unfinished_registration()
+    {
+        $old = $this->livewireVehicle();
+        $fresh = Livewire::test(VehicleVisit::class)->assertSet('residente', '')->assertSet('placa', '')
+            ->assertSet('cono', '')->assertSet('visitor', [])->assertSet('nombreManualInput', '')
+            ->assertSet('notice', '')->assertSet('status', 'editing')->assertSet('modalOpen', false);
+        $this->assertNotSame($old->get('submissionId'), $fresh->get('submissionId'));
+        $this->assertArrayNotHasKey('draftToken', $fresh->payload['serverMemo']['data']);
+        $this->assertDatabaseCount('visitas', 0);
+    }
+
+    public function test_reconnecting_keeps_current_inputs_without_restoring_another_form()
+    {
+        $component = $this->livewireVehicle()->set('placa', 'EDIT123')->set('cono', '90');
+        $uuid = $component->get('submissionId');
+        $component->call('recover')->assertHasNoErrors()->assertSet('placa', 'EDIT123')->assertSet('cono', '90')
+            ->assertSet('visitor.Primer_Nombre', 'JUAN')->assertSet('submissionId', $uuid);
+        $this->assertDatabaseCount('visitas', 0);
     }
 
     public function test_pedestrian_registration_photo_detail_and_exit()
@@ -557,6 +571,43 @@ class VisitRegistrationTest extends TestCase
 
         $this->assertSame(1, $response->json('user_id'));
         $this->assertNotEmpty($response->json('csrf_token'));
+    }
+
+    public function test_session_transport_events_are_written_to_the_application_log()
+    {
+        LaravelLog::shouldReceive('warning')->once()->with('Incidente de transporte en el registro vehicular.', [
+            'user_id' => 1,
+            'operation' => 'photo-upload',
+            'event' => 'offline',
+        ]);
+
+        $this->postJson(route('session.visits.log'), [
+            'events' => [['operation' => 'photo-upload', 'event' => 'offline', 'message' => 'no se registra']],
+        ])->assertNoContent();
+
+        $this->postJson(route('session.visits.log'), [
+            'events' => [['operation' => 'photo-upload', 'event' => 'texto arbitrario']],
+        ])->assertStatus(422);
+    }
+
+    public function test_login_remembers_the_browser_by_default_for_seven_days_and_allows_opt_out()
+    {
+        auth()->logout();
+
+        $login = $this->get(route('login'))->assertOk()->getContent();
+        $this->assertMatchesRegularExpression('/<input[^>]*id="remember"[^>]*\bchecked\b/s', $login);
+
+        $withoutRemember = $this->withSession(['_old_input' => ['username' => 'admin']])
+            ->get(route('login'))->assertOk()->getContent();
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]*id="remember"[^>]*\bchecked\b/s', $withoutRemember);
+
+        auth()->guard('web')->login(User::findOrFail(1), true);
+        $response = $this->getJson(route('session.visits'))->assertOk();
+        $rememberCookies = array_values(array_filter($response->headers->getCookies(), function ($cookie) {
+            return strpos($cookie->getName(), 'remember_web_') === 0;
+        }));
+        $this->assertCount(1, $rememberCookies);
+        $this->assertEqualsWithDelta(now()->addDays(7)->timestamp, $rememberCookies[0]->getExpiresTime(), 2);
     }
 
     public function test_vehicle_photo_storage_failure_leaves_no_visit_or_log()

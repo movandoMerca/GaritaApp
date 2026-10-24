@@ -107,7 +107,7 @@
                                 <div class="checkbox-inline custom-b">
                                     <label class="checkbox checkbox-outline checkbox-outline-2x checkbox-primary">
                                         <input type="checkbox" name="remember" id="remember"
-                                            {{ old('remember') ? 'checked' : '' }}>
+                                            {{ old('username') !== null ? (old('remember') ? 'checked' : '') : 'checked' }}>
                                         <span></span><b>Recuerdame</b></label>
                                 </div>
                             </div>

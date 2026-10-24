@@ -8,7 +8,6 @@ use App\Models\Visit;
 use App\Services\VehicleLicense;
 use App\Services\VehicleVisitDrafts;
 use App\Services\VehicleVisitRegistration;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Validator;
@@ -47,7 +46,6 @@ class VehicleVisit extends Component
     public $uploads = [];
     public $status = 'editing';
     public $notice = '';
-    public $draftToken = '';
 
     private const INPUTS = ['residente', 'placa', 'cono', 'es_repartidor', 'codigoLicencia', 'nombreManualInput'];
     private const TRANSIENT_INPUTS = ['residentSearch'];
@@ -69,15 +67,6 @@ class VehicleVisit extends Component
             $this->applyState($draft['frozen']['state']);
             $this->status = 'pending';
         }
-    }
-
-    public function dehydrate()
-    {
-        // Opaque proof for local backup; the browser never decides which visitor
-        // or pending submission may be restored for the authenticated account.
-        $this->draftToken = Crypt::encryptString(json_encode([
-            'owner' => $this->ownerId, 'uuid' => $this->submissionId, 'state' => $this->state(),
-        ], JSON_THROW_ON_ERROR));
     }
 
     public function updating($name)
@@ -207,10 +196,6 @@ class VehicleVisit extends Component
             Arr::forget($this->uploads, $key);
             $file->delete();
         }
-        if ($this->status === 'restoring' && !$this->capturePending) {
-            $this->drafts()->freeze($this->ownerId, $this->submissionId, $this->state());
-            $this->status = 'pending';
-        }
     }
 
     public function uploadErrored($name, $errorsInJson, $isMultiple)
@@ -228,10 +213,6 @@ class VehicleVisit extends Component
         if (!$roles) return;
         $this->capturePending = array_values(array_diff($this->capturePending, $roles));
         $this->addError('fotos', 'No se pudo capturar '.implode(', ', $roles).'. Revise las cámaras e intente nuevamente.');
-        if ($this->status === 'restoring' && !$this->capturePending) {
-            $this->drafts()->freeze($this->ownerId, $this->submissionId, $this->state());
-            $this->status = 'pending';
-        }
     }
 
     public function save()
@@ -286,7 +267,9 @@ class VehicleVisit extends Component
             $this->status = 'pending';
             $this->notice = 'El envío sigue pendiente. Verifique o reintente el mismo guardado para evitar duplicados.';
         } else {
+            $inputs = $this->only(self::INPUTS);
             if (isset($draft['state'])) $this->applyState($draft['state']);
+            $this->fill($inputs);
             $this->status = 'editing';
         }
         $this->loadPhotoVersions($draft);
@@ -294,71 +277,11 @@ class VehicleVisit extends Component
         $this->dispatchBrowserEvent('vehicle:recovered');
     }
 
-    public function restoreDraft(array $backup)
-    {
-        $this->assertOwner();
-        $this->residentSearch = '';
-        abort_unless((string) ($backup['user_id'] ?? '') === (string) $this->ownerId, 403);
-        $old = ($backup['version'] ?? null) === 1;
-        $proof = null;
-        if (!$old) {
-            try { $proof = json_decode(Crypt::decryptString($backup['token'] ?? ''), true, 512, JSON_THROW_ON_ERROR); }
-            catch (Throwable $exception) { $this->addError('registro', 'No se pudo verificar el borrador de esta pestaña.'); return; }
-            abort_unless(($proof['owner'] ?? null) === $this->ownerId, 403);
-        }
-        $uuid = $old ? ($backup['submission_id'] ?? '') : ($proof['uuid'] ?? '');
-        abort_unless(is_string($uuid) && Str::isUuid($uuid), 422);
-        $this->submissionId = $uuid;
-        if ($this->finishExisting()) return;
-        $draft = $this->drafts()->read($this->ownerId, $uuid);
-        if (!empty($draft['frozen'])) { $this->recover(); return; }
-        $this->resetValidation();
-        $pending = $old && ($backup['attempt_sent'] ?? false) && is_array($backup['pending_submission'] ?? null);
-        $state = $old ? $this->legacyState($backup, $pending) : ($draft['state'] ?? $proof['state'] ?? []);
-        $this->applyState($state);
-        if (!$pending) {
-            foreach ($backup['inputs'] ?? [] as $field => $value) {
-                if (in_array($field, self::INPUTS, true) && (is_scalar($value) || $value === null)) $this->$field = $value;
-            }
-        }
-        $this->status = $pending ? 'restoring' : 'editing';
-        $this->captureGeneration++;
-        $this->loadResident();
-        // Preserve a server-side photo when the browser only has field edits.
-        $this->drafts()->edit($this->ownerId, $uuid, $this->state());
-        $this->loadPhotoVersions($draft);
-        $roles = array_values(array_diff($this->photoRoles(), array_keys($this->photoVersions)));
-        if (!$pending) {
-            $localPhotos = is_array($backup['photos'] ?? null) ? $backup['photos'] : [];
-            $fields = ['licencia' => 'photo1', 'placa' => 'photo2', 'visitante' => 'photo3'];
-            $roles = array_values(array_filter($roles, function ($role) use ($localPhotos, $fields) {
-                return !empty($localPhotos[$role]) || !empty($localPhotos[$fields[$role]]);
-            }));
-        }
-        $this->capturePending = $roles;
-        $this->dispatchBrowserEvent('vehicle:restore-photos', [
-            'generation' => $this->captureGeneration, 'roles' => $roles,
-            'source' => $pending ? 'pending_submission' : 'photos',
-        ]);
-        if ($pending && !$roles) {
-            $this->drafts()->freeze($this->ownerId, $uuid, $this->state());
-            $this->status = 'pending';
-        }
-        $this->notice = $pending ? 'Se recuperó un envío pendiente; verifique el mismo guardado.' : 'Se recuperó el borrador de esta pestaña.';
-        $this->dispatchBrowserEvent('vehicle:recovered');
-    }
-
-    public function backupUnavailable()
-    {
-        $this->addError('respaldo', 'El navegador no permitió guardar un borrador. Mantenga esta pestaña abierta para no perder los datos.');
-    }
-
     public function cancel()
     {
         if ($this->status !== 'editing' && !$this->confirmCancel) { $this->confirmCancel = true; return; }
         if ($this->status === 'editing') {
             $this->drafts()->discard($this->ownerId, $this->submissionId);
-            $this->dispatchBrowserEvent('vehicle:clear-backup');
         }
         $this->redirectRoute('home');
     }
@@ -505,24 +428,6 @@ class VehicleVisit extends Component
         }
     }
 
-    protected function legacyState(array $backup, bool $pending): array
-    {
-        $data = $pending ? $backup['pending_submission'] : [
-            'residente' => $backup['resident'] ?? '', 'placa' => $backup['plate'] ?? '', 'cono' => $backup['cone'] ?? '',
-            'es_repartidor' => $backup['delivery'] ?? false, 'tokens' => $backup['tokens'] ?? [],
-            'nombreManual' => $backup['manual_name'] ?? '',
-        ];
-        $state = array_intersect_key($data, array_flip(self::INPUTS));
-        $state['nombreManual'] = is_string($data['nombreManual'] ?? null) ? trim($data['nombreManual']) : '';
-        $state['nombreManualInput'] = $pending ? $state['nombreManual'] : ($backup['manual_name_input'] ?? $state['nombreManual']);
-        $state['visitor'] = [];
-        if ($state['nombreManual'] === '' && !empty($data['tokens']) && is_array($data['tokens'])) {
-            try { $state['visitor'] = app(VehicleLicense::class)->fromTokens($data['tokens']); }
-            catch (ValidationException $exception) { $this->setErrorBag($exception->validator->errors()); }
-        }
-        return $state;
-    }
-
     protected function finishExisting(): bool
     {
         $visit = Visit::where('submission_id', $this->submissionId)->first();
@@ -536,7 +441,6 @@ class VehicleVisit extends Component
     {
         $this->status = 'saved';
         try { $this->drafts()->discard($this->ownerId, $this->submissionId); } catch (Throwable $exception) { report($exception); }
-        $this->dispatchBrowserEvent('vehicle:clear-backup');
         $this->redirectRoute('detailv.visits', ['id' => $id]);
     }
 }

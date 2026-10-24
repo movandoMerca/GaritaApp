@@ -1,16 +1,10 @@
 <div data-vehicle-visit-component data-user-id="{{ $ownerId }}" data-submission-id="{{ $submissionId }}" data-modal-open="{{ $modalOpen ? 'true' : 'false' }}">
-    <div wire:ignore id="vehicle-transport-alert" class="alert alert-danger" role="alert" hidden>
-        Se interrumpió la comunicación. Los datos se conservaron; reconecte para verificar el formulario.
-        <button type="button" id="vehicle-reconnect" class="btn btn-sm btn-light">Reconectar / verificar</button>
-        <a href="{{ route('login') }}" target="_blank" rel="noopener">Iniciar sesión en otra pestaña</a>
-    </div>
-    <form wire:submit.prevent="save" class="form" id="vehicle-visit-form"
-        data-livewire-url="{{ url('/livewire/message/vehicle-visit') }}"
-        data-session-url="{{ route('session.visits') }}"
+    <form wire:submit.prevent="save" class="form" id="vehicle-visit-form" autocomplete="off"
+        data-livewire-url="{{ route('livewire.message', ['name' => 'vehicle-visit'], false) }}"
+        data-session-url="{{ route('session.visits', [], false) }}"
         data-user-id="{{ Auth()->id() }}"
         data-submission-id="{{ $submissionId }}"
         data-csrf-token="{{ csrf_token() }}"
-        data-login-url="{{ route('login') }}"
         data-camera-licencia="{{ Auth()->user()->camara_id_licencia }}"
         data-camera-placa="{{ Auth()->user()->camara_id_placa }}"
         data-camera-visitante="{{ Auth()->user()->camara_id_visitante }}"
@@ -31,7 +25,7 @@
                                 {{ $notice }}
                             @endif
                         </div>
-                        <fieldset class="border-0 p-0 m-0 w-100" @if ($status !== 'editing') disabled @endif wire:loading.attr="disabled" wire:target="save,restoreDraft,recover">
+                        <fieldset class="border-0 p-0 m-0 w-100" @if ($status !== 'editing') disabled @endif wire:loading.attr="disabled" wire:target="save,recover">
                         <div class="row">
                             <div class="col-md-2">
                                 <div class="symbol symbol-50 symbol-lg-120 symbol-light-primary">
@@ -70,7 +64,7 @@
                                             </a>
                                         </div>
                                     </div>
-                                    <div class="flex-shrink-0 mr-7" id="ocultar" @if ($visitor && $nombreManual === '') hidden @endif>
+                                    <div class="flex-shrink-0 mr-7" id="ocultar">
                                         <label>Codigo</label>
                                         <div class="input-group input-group-sm">
                                             <div class="input-group-prepend">
@@ -79,7 +73,7 @@
                                                 </span>
                                             </div>
                                             <input wire:model.defer="codigoLicencia" wire:keydown.enter.prevent="scanLicense" type="text" id="data" name="data" class="form-control visit-input"
-                                                autofocus />
+                                                autocomplete="off" autocapitalize="off" spellcheck="false" autofocus />
                                             <div class="input-group-append">
                                                 <button type="button" id="abrirIngresoManual"
                                                     class="btn btn-light-primary font-weight-bolder visit-input"
@@ -93,9 +87,9 @@
                                 <div class="d-flex align-items-center flex-wrap justify-content-between">
                                     <div class="flex-grow-1 font-weight-bold text-dark-50 py-2 py-lg-2 mr-5">
                                         <div class="row">
-                                            <div class="col-md">
+                                            <div class="col-md-5">
                                                 <label for="selectResidente">Acceso telefónico / residente</label>
-                                                <div class="input-group input-group-sm" wire:ignore>
+                                                <div class="input-group input-group-sm resident-select-group" wire:ignore>
                                                     <div class="input-group-prepend">
                                                         <span class="input-group-text input-group-solid bg-primary">
                                                             <i class="fa fa-phone text-white"></i>
@@ -276,7 +270,7 @@
                                     id="prueba">Cancelar</button>
                                 @if ($confirmCancel)
                                     <div class="alert alert-warning mt-3">El guardado sigue pendiente de verificación.
-                                        <button type="button" wire:click="cancel" class="btn btn-sm btn-light-danger">Salir conservando el envío pendiente</button>
+                                        <button type="button" wire:click="cancel" class="btn btn-sm btn-light-danger">Salir del formulario</button>
                                         <button type="button" wire:click="keepEditing" class="btn btn-sm btn-light">Volver</button>
                                     </div>
                                 @endif

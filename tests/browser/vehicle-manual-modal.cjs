@@ -41,18 +41,12 @@ const base = 'http://localhost:18880';
 
             await page.click('#abrirIngresoManual');
             await page.fill('#nombre-manual', 'BORRADOR MODAL');
-            await page.waitForFunction(() => {
-                const key = 'garita.vehicle-visit.v1.' + document.querySelector('#vehicle-visit-form').dataset.userId;
-                return JSON.parse(sessionStorage.getItem(key) || 'null')?.inputs?.nombreManualInput === 'BORRADOR MODAL';
-            });
             await page.reload();
-            await page.waitForFunction(() => {
-                const component = document.querySelector('[data-vehicle-visit-component]').__livewire;
-                return !component.messageInTransit && !component.updateQueue.length;
-            });
-            if (!await modal.isVisible()) await page.click('#abrirIngresoManual');
+            await page.waitForFunction(() => !document.querySelector('[data-vehicle-visit-component]').__livewire.messageInTransit);
+            assert.equal(await page.inputValue('#nombre-manual'), '');
+            assert.equal(await page.locator('[id="1nombre"]').textContent(), '');
+            await page.click('#abrirIngresoManual');
             await modal.waitFor({ state: 'visible' });
-            assert.equal(await page.inputValue('#nombre-manual'), 'BORRADOR MODAL');
             await modal.getByRole('button', { name: 'Cancelar', exact: true }).click();
             await waitClosed();
 
@@ -64,16 +58,17 @@ const base = 'http://localhost:18880';
             await page.fill('#nombre-manual', 'VISITANTE MANUAL');
             await page.click('#guardarManual');
             await waitClosed();
+            await page.evaluate(() => window.jQuery('#selectResidente').val('1').trigger('change'));
+            await page.waitForFunction(() => document.querySelector('#ftelefono').value === 'A-12');
             await page.fill('#placa', channel === 'chrome' ? 'MODALC' : 'MODALE');
             await page.fill('#cono', '1');
-            await page.selectOption('#selectResidente', '1');
             try {
                 await Promise.all([page.waitForURL('**/visit/detailvisit/*', { timeout: 15000 }), page.click('#guardar')]);
             } catch (error) {
                 console.error(await page.evaluate(() => {
                     const root = document.querySelector('[data-vehicle-visit-component]');
                     return { url: location.href, notice: document.querySelector('#responset')?.textContent,
-                        transport: document.querySelector('#vehicle-transport-alert')?.hidden,
+                        transportBlocked: document.querySelector('#vehicle-visit-form')?.inert,
                         status: root?.__livewire.data.status, resident: root?.__livewire.data.residente,
                         manual: root?.__livewire.data.nombreManual, plate: root?.__livewire.data.placa };
                 }));
@@ -84,7 +79,7 @@ const base = 'http://localhost:18880';
             assert.equal(after.visits.length, initial.visits.length + 1);
             assert.equal(after.visits.find(visit => Number(visit.id) === Number(page.url().split('/').pop())).Primer_Nombre, 'VISITANTE MANUAL');
             assert.deepEqual(errors, []);
-            console.log('PASS ' + channel + ': previous modal, validation, Enter, recovered draft, Cancel, Escape and manual registration');
+            console.log('PASS ' + channel + ': previous modal, validation, Enter, clean reload, Cancel, Escape and manual registration');
             await context.close();
         } finally { await browser.close(); }
     }

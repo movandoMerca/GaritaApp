@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
 
-/** Private local draft files; no cache eviction can erase an uncertain send. */
+/** Private temporary photos and submission state; retained for same-page retries. */
 class VehicleVisitDrafts
 {
     public function read(int $owner, string $uuid): array
@@ -28,7 +28,7 @@ class VehicleVisitDrafts
         return $this->locked($owner, $uuid, function ($draft) use ($owner, $uuid, $generation, $role, $bytes, $extension) {
             if (!empty($draft['frozen']) || ($draft['state']['captureGeneration'] ?? -1) !== $generation) return $draft;
             $path = $this->directory($owner, $uuid)."/photos/$generation-$role.$extension";
-            if (!Storage::disk('local')->put($path, $bytes)) throw new RuntimeException('No se pudo conservar la fotografía del borrador.');
+            if (!Storage::disk('local')->put($path, $bytes)) throw new RuntimeException('No se pudo conservar la fotografía temporal.');
             $previous = $draft['photos'][$role]['path'] ?? null;
             if ($previous && $previous !== $path) Storage::disk('local')->delete($previous);
             $draft['photos'][$role] = ['path' => $path, 'generation' => $generation];
@@ -105,12 +105,12 @@ class VehicleVisitDrafts
         $directory = $this->directory($owner, $uuid);
         $disk->makeDirectory($directory);
         $lock = fopen($disk->path($directory.'/.lock'), 'c');
-        if (!$lock || !flock($lock, LOCK_EX)) throw new RuntimeException('No se pudo verificar el borrador.');
+        if (!$lock || !flock($lock, LOCK_EX)) throw new RuntimeException('No se pudo verificar el formulario.');
         try {
             $path = $directory.'/draft.json';
             $draft = $disk->exists($path) ? json_decode($disk->get($path), true, 512, JSON_THROW_ON_ERROR) : [];
             $draft = $callback($draft);
-            if ($write && !$disk->put($path, json_encode($draft, JSON_THROW_ON_ERROR))) throw new RuntimeException('No se pudo conservar el borrador.');
+            if ($write && !$disk->put($path, json_encode($draft, JSON_THROW_ON_ERROR))) throw new RuntimeException('No se pudo conservar los datos del formulario.');
             return $draft;
         } finally {
             flock($lock, LOCK_UN);

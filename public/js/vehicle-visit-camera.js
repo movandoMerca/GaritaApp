@@ -2,7 +2,7 @@
 (function () {
     'use strict';
 
-    function initialize(root, component, recovery) {
+    function initialize(root, component) {
         const form = root.querySelector('#vehicle-visit-form');
         const roles = ['licencia', 'placa', 'visitante'];
         const photoFields = {licencia:'photo1', placa:'photo2', visitante:'photo3'};
@@ -10,7 +10,7 @@
         const canvasEls = Object.fromEntries(roles.map((role, i) => [role, document.getElementById('canvas'+(i+1))]));
         const cameras = Object.fromEntries(roles.map(role => [role, null]));
         const enabledRoles = roles.filter(role => form.dataset['photo'+role[0].toUpperCase()+role.slice(1)] === 'true');
-        let activeGeneration = 0, cameraInitializationComplete = false, leftPage = false;
+        let activeGeneration = 0, cameraInitializationComplete = false, cameraOpening = false, leftPage = false;
 
         function dataUriFile(data, role) {
             const comma = data.indexOf(','), mime = data.slice(5, data.indexOf(';'));
@@ -21,7 +21,6 @@
 
         function uploadPhoto(generation, role, data) {
             window[photoFields[role]] = data;
-            recovery.recordPhoto(role, data);
             component.upload('uploads.'+generation+'.'+role, dataUriFile(data, role), () => {},
                 () => component.call('cameraFailed', generation, [role]).catch(() => {}), () => {});
         }
@@ -29,21 +28,6 @@
         window.addEventListener('vehicle:reset-cameras', event => {
             activeGeneration = event.detail.generation;
             roles.forEach(role => { window[photoFields[role]] = undefined; });
-        });
-
-        window.addEventListener('vehicle:restore-photos', event => {
-            activeGeneration = event.detail.generation;
-            const originalBackup = recovery.originalBackup();
-            const source = event.detail.source === 'pending_submission'
-                ? originalBackup?.pending_submission
-                : originalBackup?.photos;
-            const missing = [];
-            for (const role of event.detail.roles) {
-                const data = source?.[role] || source?.[photoFields[role]];
-                if (typeof data === 'string' && data.startsWith('data:image/')) uploadPhoto(activeGeneration, role, data);
-                else missing.push(role);
-            }
-            if (missing.length) component.call('cameraFailed', activeGeneration, missing).catch(() => {});
         });
 
         window.addEventListener('vehicle:capture', async event => {
@@ -82,10 +66,26 @@
             new Set(Object.values(cameras)).forEach(stream => stream?.getTracks().forEach(track => track.stop()));
         });
 
+        function resumeCameras() {
+            leftPage = false;
+            const needsRestart = enabledRoles.some(role => cameras[role]
+                && cameras[role].getTracks().some(track => track.readyState === 'ended'));
+            if (!needsRestart) return;
+            new Set(Object.values(cameras)).forEach(stream => stream?.getTracks().forEach(track => track.stop()));
+            roles.forEach(role => { cameras[role] = null; videoEls[role].srcObject = null; });
+            cameraInitializationComplete = false;
+            openCameras();
+        }
+
+        window.addEventListener('vehicle:resume-cameras', resumeCameras);
+        window.addEventListener('pageshow', resumeCameras);
+
         async function openCameras() {
             if (!enabledRoles.length) { cameraInitializationComplete = true; return; }
             const media = navigator.mediaDevices;
             if (!media?.getUserMedia || !media.enumerateDevices) { cameraInitializationComplete = true; return; }
+            if (cameraOpening) return;
+            cameraOpening = true;
             let permission;
             try {
                 permission = await media.getUserMedia({video:true, audio:false});
@@ -114,7 +114,7 @@
                     } catch (_) { /* PHP reports requested roles when capture is unavailable. */ }
                 }
             } catch (_) { permission?.getTracks().forEach(track => track.stop()); }
-            finally { cameraInitializationComplete = true; }
+            finally { cameraInitializationComplete = true; cameraOpening = false; }
         }
 
         openCameras();

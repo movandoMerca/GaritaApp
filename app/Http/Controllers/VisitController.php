@@ -10,6 +10,7 @@ use App\Models\Resident;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\File;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log as LaravelLog;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Throwable;
@@ -169,6 +170,25 @@ class VisitController extends Controller
             'user_id' => $request->user()->getAuthIdentifier(),
             'csrf_token' => csrf_token(),
         ])->header('Cache-Control', 'private, no-store, max-age=0');
+    }
+
+    public function logSessionEvents(Request $request)
+    {
+        $events = $request->validate([
+            'events' => ['required', 'array', 'max:20'],
+            'events.*.operation' => ['required', 'string', 'in:session-check,save,livewire-action,photo-upload'],
+            'events.*.event' => ['required', 'string', 'in:offline,timeout,authentication-required,account-changed,request-failed,upload-url-expired'],
+        ])['events'];
+
+        foreach ($events as $event) {
+            LaravelLog::warning('Incidente de transporte en el registro vehicular.', [
+                'user_id' => $request->user()->getAuthIdentifier(),
+                'operation' => $event['operation'],
+                'event' => $event['event'],
+            ]);
+        }
+
+        return response()->noContent();
     }
 
     public function save(Request $request)

@@ -2,6 +2,9 @@
 
 return [
 
+    // Remember-me cookies keep guard staff signed in across long idle periods.
+    'remember_duration' => env('AUTH_REMEMBER_DURATION', 10080),
+
     /*
     |--------------------------------------------------------------------------
     | Authentication Defaults

@@ -8,8 +8,11 @@ if (!['localhost','127.0.0.1'].includes(target.hostname) || target.port!=='18880
 const channel=process.env.VISITS_BROWSER || 'edge';
 const code=['12345678','C','JUAN','','PEREZ','','01/01/1990','01/01/2030','1234567890101','12345678',''].join('|');
 async function fakeCamera(){
+    let starts=0;
+    window.__fakeCameraStarts=()=>starts;
     const ids=['fake-license','fake-plate','fake-visitor'];
     const devices={enumerateDevices:async()=>ids.map(id=>({kind:'videoinput',deviceId:id,label:id})),getUserMedia:async()=>{
+        starts++;
         const canvas=document.createElement('canvas');canvas.width=640;canvas.height=480;
         const ctx=canvas.getContext('2d');ctx.fillStyle='#eee';ctx.fillRect(0,0,640,480);ctx.fillStyle='#123';ctx.font='30px Arial';ctx.fillText('FOTO SINTETICA DE PRUEBA',15,200);
         const stream=canvas.captureStream(5);
@@ -42,6 +45,18 @@ async function fakeCamera(){
         await page.goto(base+'/login');
         await page.fill('[name=username]','admin');await page.fill('[name=password]','visits-test-only');
         await Promise.all([page.waitForURL(url=>!url.pathname.includes('login')),page.click('button[type=submit]')]);
+        await control([1,1,1]);
+        await page.goto(base+'/visit/create');
+        await page.waitForFunction(()=>window.__fakeCameraStarts()>=4);
+        await page.waitForFunction(()=>[1,2,3].every(number=>document.querySelector('#video'+number).readyState>=2));
+        const cameraStarts=await page.evaluate(()=>window.__fakeCameraStarts());
+        await page.evaluate(()=>{
+            window.dispatchEvent(new Event('pagehide'));
+            window.dispatchEvent(new Event('pageshow'));
+        });
+        await page.waitForFunction(previous=>window.__fakeCameraStarts()>previous,cameraStarts);
+        await page.waitForFunction(()=>[1,2,3].every(number=>document.querySelector('#video'+number).readyState>=2));
+        console.log('PASS cameras restart after a suspended page resumes');
         async function modalReady(){ await page.locator('#modalimg').waitFor({state:'visible'}); }
         async function prepare(plate,manual,photos=[1,1,1],delivery=false){
             await control(photos);
@@ -49,7 +64,7 @@ async function fakeCamera(){
             const script=await page.locator('script[src*="vehicle-visit.js"]').getAttribute('src');assert.match(script,/\?v=\d+/);
             const cameraScript=await page.locator('script[src*="vehicle-visit-camera.js"]').getAttribute('src');assert.match(cameraScript,/\?v=\d+/);
             await page.fill('#placa',plate);await page.fill('#cono','17');
-            await page.selectOption('#selectResidente','1');
+            await page.selectOption('#selectResidente','1',{force:true});
             if (delivery) await page.click('.switch label');
             if(manual){await page.click('#abrirIngresoManual');await modalReady();await page.fill('#nombre-manual','MANUAL '+plate);await page.click('#guardarManual');await page.locator('#modalimg').waitFor({state:'hidden'});}
             else{await page.fill('#data',code);await page.press('#data','Enter');}
@@ -92,18 +107,14 @@ async function fakeCamera(){
         assert.equal(await page.locator('#guardar').isEnabled(),true);
         await page.click('#abrirIngresoManual');
         await page.fill('#nombre-manual','BORRADOR SIN CONFIRMAR');
-        await page.waitForFunction(()=>{
-            const key='garita.vehicle-visit.v1.'+document.querySelector('#vehicle-visit-form').dataset.userId;
-            return JSON.parse(sessionStorage.getItem(key)||'null')?.inputs?.nombreManualInput==='BORRADOR SIN CONFIRMAR';
-        });
         await page.reload();
         await page.click('#abrirIngresoManual');
-        assert.equal(await page.inputValue('#nombre-manual'),'BORRADOR SIN CONFIRMAR');
+        assert.equal(await page.inputValue('#nombre-manual'),'');
         await modalReady();
         await page.locator('#modalimg').getByRole('button',{name:'Cancelar',exact:true}).click();
         await page.locator('#modalimg').waitFor({state:'hidden'});
         await Promise.all([page.waitForURL(url=>url.pathname==='/home'),page.click('#prueba')]);
-        console.log('PASS E2E: validation and manual name outside the form survive draft reload');
+        console.log('PASS E2E: validation and a clean manual form after reload');
         let saved=0;
         for(let mask=0;mask<8;mask++){
             const photos=[mask&1?1:0,mask&2?1:0,mask&4?1:0];const manual=mask%2===0;const delivery=mask%3===0;
@@ -126,11 +137,10 @@ async function fakeCamera(){
             lostCommittedResponse=true;
             const result=await route.fetch();assert.equal(result.status(),200);await route.abort('failed');
         });
-        await page.click('#guardar');await page.getByText(/Se interrumpió la comunicación/).waitFor();
-        await page.reload();await page.waitForURL('**/visit/detailvisit/*');
+        await page.click('#guardar');await page.waitForURL('**/visit/detailvisit/*');
         const id=Number(page.url().split('/').pop());saved++;await detail(id,false,[1,1,1],false);
         assert.equal((await control()).visits.filter(v=>v.submission_id===uuid).length,1);
-        console.log('PASS E2E: lost committed response, reload, same UUID and preserved photos');
+        console.log('PASS E2E: lost committed response, automatic retry, same UUID and preserved photos');
         // Concurrent requests and a duplicate submit event exercise server and UI separately.
         await prepare('D'+(channel==='edge'?'E':'C')+'000001',false);
         const stateBefore=await control();

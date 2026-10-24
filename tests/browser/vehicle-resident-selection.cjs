@@ -27,7 +27,7 @@ if (!['localhost','127.0.0.1','web','garita-vehicle-test-web-1'].includes(new UR
             await page.goto(base+'/login');await page.fill('[name=username]','admin');await page.fill('[name=password]','visits-test-only');
             await Promise.all([page.waitForURL(url=>!url.pathname.includes('/login')),page.click('button[type=submit]')]);
             await page.goto(base+'/visit/create');
-            const originalUuid=await page.locator('#vehicle-visit-form').getAttribute('data-submission-id');
+            let originalUuid=await page.locator('#vehicle-visit-form').getAttribute('data-submission-id');
             const select=page.locator('#selectResidente');
             async function search(value) {
                 if (!await page.locator('.select2-container--open .select2-search__field').count()) {
@@ -73,13 +73,14 @@ if (!['localhost','127.0.0.1','web','garita-vehicle-test-web-1'].includes(new UR
             await page.keyboard.press('Escape');
             assert.equal(await select.inputValue(),'2','changing the query keeps the selected active resident visible');
             assert.ok(await select.locator('option:checked').textContent().then(text=>text.includes('C202')));
-            await page.waitForFunction(()=>JSON.parse(sessionStorage.getItem('garita.vehicle-visit.v1.'+document.querySelector('#vehicle-visit-form').dataset.userId)||'null')?.inputs?.residente==='2');
-            const draft=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('garita.vehicle-visit.v1.'+document.querySelector('#vehicle-visit-form').dataset.userId)));
-            assert.equal(draft.inputs.residentSearch,undefined,'transient search text is excluded from registration backup');
-            await page.reload();await details('B-34','Casa B-34');
-            assert.equal(await page.locator('#vehicle-visit-form').getAttribute('data-submission-id'),originalUuid);
-            assert.match(await select.locator('option:checked').textContent(),/C202/);
-            console.log('PASS '+channel+': name/code search, selection and backup reload retain the selected house');
+            assert.equal(await page.evaluate(()=>sessionStorage.getItem('garita.vehicle-visit.v1.'+document.querySelector('#vehicle-visit-form').dataset.userId)),null);
+            await page.reload();await details('','');
+            assert.equal(await select.inputValue(),'');
+            const newUuid=await page.locator('#vehicle-visit-form').getAttribute('data-submission-id');
+            assert.notEqual(newUuid,originalUuid);
+            originalUuid=newUuid;
+            await choose('2');await details('B-34','Casa B-34');
+            console.log('PASS '+channel+': name/code search and clean reload without restoring the selected house');
 
             // A slower previous resident response must not erase newer local edits.
             let release,startedResolve;const started=new Promise(resolve=>startedResolve=resolve);const gate=new Promise(resolve=>release=resolve);
@@ -105,19 +106,22 @@ if (!['localhost','127.0.0.1','web','garita-vehicle-test-web-1'].includes(new UR
             assert.equal(await page.inputValue('#placa'),'EDIT123');assert.equal(await page.isChecked('#es_repartidor'),true);
             console.log('PASS '+channel+': a slow selection response preserves newer form edits');
 
+            let failedOnce=false;
             const failing=async route=>{
                 const action=lookup(route.request());
-                if(action&&String(action.payload.value)==='1')await route.fulfill({status:503,contentType:'application/json',body:'{}'});
+                if(!failedOnce&&action&&String(action.payload.value)==='1'){
+                    failedOnce=true;
+                    await route.fulfill({status:503,contentType:'application/json',body:'{}'});
+                }
                 else await route.continue();
             };
             await page.route(endpoint,failing);
             await matching('C101','1','C101');
-            await choose('1');await page.locator('#vehicle-transport-alert').waitFor({state:'visible'});
-            assert.equal(await page.locator('#vehicle-visit-form').evaluate(element=>element.inert),true);
-            await page.unroute(endpoint,failing);await page.click('#vehicle-reconnect');
-            await page.locator('#vehicle-transport-alert').waitFor({state:'hidden'});
+            await choose('1');await details('A-12','Casa A-12');
+            assert.equal(failedOnce,true);
+            await page.unroute(endpoint,failing);
             await details('A-12','Casa A-12');
-            console.log('PASS '+channel+': transport failure recovers the selected resident through the saved draft');
+            console.log('PASS '+channel+': transport failure retries the resident selection automatically');
 
             const beforeClear=requests.length;
             await choose('');await details('','');

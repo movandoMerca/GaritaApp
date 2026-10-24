@@ -166,7 +166,9 @@ mismo servicio. Detalles, egresos, reportes y registro peatonal mantienen sus ru
 
 El selector Select2 busca por acceso telefónico, código de casa o nombre dentro
 del desplegable y carga todos los residentes activos. La selección actualiza
-No. Casa y Dirección mediante Livewire y se conserva en el borrador.
+No. Casa y Dirección mediante Livewire dentro del formulario actual.
+Al entrar, Código recibe el foco y permanece visible para escanear directamente.
+Ingreso manual y Select2 conservan su propio foco mientras el operador los utiliza.
 Al leer una licencia válida se capturan automáticamente las fotografías
 habilitadas, esperando hasta diez segundos si las cámaras todavía están
 iniciando. **Tomar foto** permite repetir la captura. Un código inválido o el
@@ -174,13 +176,22 @@ ingreso manual no dispara esta captura automática; en el ingreso manual se
 conserva la exclusión de la foto de licencia. La captura no registra la visita:
 el operador todavía pulsa **Guardar**.
 
-Las fotografías permanecen en el navegador hasta enviarse como argumentos de la
-acción, sin incorporarse al estado serializado de Livewire. El ingreso manual,
-sus validaciones y el guardado usan acciones y enlaces Livewire; solo la cámara,
-el respaldo local y la recuperación de la conexión conservan adaptadores JavaScript.
-El borrador conserva el formato anterior y los envíos pendientes. El transporte
-acotado al componente mantiene los límites de 10/60 segundos y la renovación
-CSRF de un solo intento.
+Las fotografías se suben mediante Livewire a almacenamiento temporal privado,
+sin incorporar sus bytes al estado serializado del componente. El formulario
+no guarda ni recupera borradores del navegador: recargar o volver a entrar
+inicia otro registro vacío y descarta de la interfaz lo que no se haya guardado.
+La versión nueva también elimina el respaldo local que pudieran haber dejado
+versiones anteriores.
+
+La página vehicular mantiene activa la sesión y renueva el token cada minuto.
+Después de una suspensión comprueba de nuevo la sesión, reanuda las cámaras y
+reintenta automáticamente la misma acción con el mismo UUID para no duplicar
+visitas ni bitácora. Los fallos de conexión o sesión no generan avisos visibles:
+se registran en la consola del navegador y, cuando vuelve la conexión y la
+sesión, en `storage/logs/laravel.log`.
+**Recuérdame** permanece activado por defecto durante siete días; el operador
+puede desactivarlo al iniciar sesión. Las fotografías conservan la subida privada
+de Livewire y reciben un enlace nuevo si el anterior vence.
 
 Al actualizar una instalación existente, ejecutar `composer install` desde el
 lock y `php artisan package:discover`. Si Docker ya tiene un volumen `vendor`,
@@ -298,9 +309,9 @@ local antes de crear visitas. No ejecutar `prepare-visits.php` fuera de esta
 instancia: reinicia exclusivamente sus datos descartables.
 
 La suite reproduce respuestas HTTP realmente truncadas o detenidas, antes y
-después de las cabeceras, con relojes virtuales del navegador para verificar los
-límites de 10/60 segundos. También prueba sesión, CSRF, errores HTTP, cuota del
-borrador, recarga y resultado incierto. Contra Laravel comprueba las ocho
+después de las cabeceras, con relojes virtuales del navegador para verificar la
+sesión, CSRF, reintentos automáticos y errores HTTP,
+formularios vacíos al recargar y resultados inciertos dentro de la misma página. Contra Laravel comprueba las ocho
 configuraciones de fotos, 20 ciclos completos consecutivos por navegador,
 respuesta perdida después del commit y envíos simultáneos/doble clic.
 
@@ -336,7 +347,7 @@ ni cámaras físicas con `node --test tests/js/vehicle-camera.test.cjs`.
 
 Select2 envía la selección a Livewire, que actualiza No. Casa
 y Dirección. Las búsquedas mantienen visible el residente elegido y
-el respaldo local restaura su selección. Con la instancia aislada preparada,
+recargar limpia la selección y los demás datos no guardados. Con la instancia aislada preparada,
 ejecutar:
 
 ```bash
@@ -344,9 +355,13 @@ node tests/browser/vehicle-resident-selection.cjs
 ```
 
 La regresión busca por acceso, código y nombre en Edge y Chrome, selecciona y
-limpia el selector, recupera el borrador, simula respuestas lentas y fallidas,
+limpia el selector, verifica que recargar inicie otro formulario y simula respuestas lentas y fallidas,
 conserva ediciones durante una consulta y guarda con el residente elegido
-mediante Livewire. También comprueba que un render conserve el UUID del borrador.
+mediante Livewire. Un render conserva el UUID del formulario actual; recargar genera otro.
+
+`node tests/browser/vehicle-scanner-focus.cjs` comprueba el foco inicial y tras
+recargar, la eliminación de respaldos antiguos, los escaneos sin pulsar el campo y la alineación del selector en
+escritorio y móvil, usando la misma instancia aislada.
 
 Para comprobar que un escaneo inválido no tome fotos, que un ingreso manual
 cancele una captura pendiente y que el botón permita repetir las fotos automáticas:

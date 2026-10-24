@@ -71,6 +71,7 @@ Route::prefix('visit')->group(function () {
 
     Route::get('create', [VisitController::class, 'create'])->name('create.visits')->middleware('auth');
     Route::get('session', [VisitController::class, 'sessionState'])->name('session.visits')->middleware('auth');
+    Route::post('session', [VisitController::class, 'logSessionEvents'])->name('session.visits.log')->middleware(['auth', 'throttle:60,1']);
     Route::get('index', [VisitController::class, 'index'])->name('index.visits')->middleware('auth');
     Route::get('detail', [VisitController::class, 'detail'])->name('detail.visits')->middleware('auth');
     Route::get('detailegreso/{id}', [VisitController::class, 'detailegreso'])->name('detailegreso.visits')->middleware('auth');
