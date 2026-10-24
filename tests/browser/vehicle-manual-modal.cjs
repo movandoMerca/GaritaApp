@@ -67,7 +67,18 @@ const base = 'http://localhost:18880';
             await page.fill('#placa', channel === 'chrome' ? 'MODALC' : 'MODALE');
             await page.fill('#cono', '1');
             await page.selectOption('#selectResidente', '1');
-            await Promise.all([page.waitForURL('**/visit/detailvisit/*'), page.click('#guardar')]);
+            try {
+                await Promise.all([page.waitForURL('**/visit/detailvisit/*', { timeout: 15000 }), page.click('#guardar')]);
+            } catch (error) {
+                console.error(await page.evaluate(() => {
+                    const root = document.querySelector('[data-vehicle-visit-component]');
+                    return { url: location.href, notice: document.querySelector('#responset')?.textContent,
+                        transport: document.querySelector('#vehicle-transport-alert')?.hidden,
+                        status: root?.__livewire.data.status, resident: root?.__livewire.data.residente,
+                        manual: root?.__livewire.data.nombreManual, plate: root?.__livewire.data.placa };
+                }));
+                throw error;
+            }
             const afterResponse = await context.request.post(base + '/_visits_test_control', { headers: { 'X-Visits-Test': 'isolated-visits-test' }, data: {} });
             const after = await afterResponse.json();
             assert.equal(after.visits.length, initial.visits.length + 1);
