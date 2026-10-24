@@ -29,7 +29,7 @@ class VisitRegistrationTest extends TestCase
             'path_brand' => null, 'path_logo' => null, 'path_config' => '2099-01-01',
         ]);
         DB::table('residentes')->insert([
-            'id' => 1, 'Codigo' => 'A-12', 'Nombres' => 'Residente', 'Apellidos' => 'Prueba',
+            'id' => 1, 'Codigo' => 'A-12', 'accesotel' => 'PHONE-1', 'Nombres' => 'Residente', 'Apellidos' => 'Prueba',
             'Direccion' => 'Casa A-12', 'estado' => 1,
         ]);
         Storage::fake('local');
@@ -68,7 +68,8 @@ class VisitRegistrationTest extends TestCase
     public function test_only_vehicle_registration_loads_livewire_and_keeps_camera_setup_guard()
     {
         $this->get(route('create.visits'))->assertOk()->assertSeeLivewire('vehicle-visit')
-            ->assertSee('/livewire/livewire.js', false)->assertSee('selectResidente');
+            ->assertSee('/livewire/livewire.js', false)->assertSee('selectResidente')->assertSee('residentSearch')
+            ->assertDontSee('select2-bootstrap4-theme');
         $this->get(route('create.pedestrian.visits'))->assertOk()->assertDontSee('/livewire/livewire.js', false);
         DB::table('config')->where('id', 1)->update(['enable_fotoplaca' => 1]);
         DB::table('users')->where('id', 1)->update(['camara_id_placa' => null]);
@@ -141,6 +142,35 @@ class VisitRegistrationTest extends TestCase
         $component->set('residente', '1')->assertHasErrors('residente')->assertSet('houseCode', '')->assertSet('address', '');
         $component->call('save')->assertHasErrors('residente');
         $this->assertDatabaseCount('visitas', 0);
+    }
+
+    public function test_livewire_resident_search_matches_fields_limits_results_and_keeps_selection_visible()
+    {
+        foreach (range(2, 23) as $id) {
+            DB::table('residentes')->insert([
+                'id' => $id, 'Codigo' => 'HOUSE-'.str_pad((string) $id, 2, '0', STR_PAD_LEFT),
+                'accesotel' => 'PHONE-'.$id, 'Nombres' => 'Visitante '.$id,
+                'Apellidos' => 'Prueba', 'Direccion' => 'Casa '.$id, 'estado' => 1,
+            ]);
+        }
+
+        $response = $this->get(route('create.visits'))->assertOk();
+        preg_match_all('~<option\s+value="[^"]*"~', $response->getContent(), $options);
+        $this->assertCount(21, $options[0], 'The native select contains its placeholder and at most 20 residents.');
+        $response->assertDontSee('HOUSE-23');
+
+        $component = Livewire::test(VehicleVisit::class)->set('residentSearch', 'PHONE-2')
+            ->assertSee('PHONE-2 | HOUSE-02 | Visitante 2');
+        $component->set('residentSearch', 'HOUSE-02')->assertSee('PHONE-2 | HOUSE-02 | Visitante 2');
+        $component->set('residentSearch', 'Visitante 2')->assertSee('PHONE-2 | HOUSE-02 | Visitante 2');
+
+        $component->set('residente', '1')->assertSet('houseCode', 'A-12')->set('residentSearch', 'no match')
+            ->assertSee('PHONE-1 | A-12 | Residente  Prueba');
+        $this->assertArrayNotHasKey('residentSearch', app(\App\Services\VehicleVisitDrafts::class)
+            ->read(1, $component->get('submissionId'))['state']);
+
+        Livewire::test(VehicleVisit::class)->set('residentSearch', 'no match')
+            ->assertSee('No se encontraron residentes activos.')->assertDontSee('A-12 | A-12');
     }
 
     public function test_livewire_failed_photo_storage_does_not_register_and_can_retry()

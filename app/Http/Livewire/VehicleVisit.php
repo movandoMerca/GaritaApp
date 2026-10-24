@@ -28,6 +28,7 @@ class VehicleVisit extends Component
     public $ownerId;
     public $submissionId;
     public $residente = '';
+    public $residentSearch = '';
     public $placa = '';
     public $cono = '';
     public $es_repartidor = false;
@@ -49,6 +50,7 @@ class VehicleVisit extends Component
     public $draftToken = '';
 
     private const INPUTS = ['residente', 'placa', 'cono', 'es_repartidor', 'codigoLicencia', 'nombreManualInput'];
+    private const TRANSIENT_INPUTS = ['residentSearch'];
     private const STATE = ['residente', 'placa', 'cono', 'es_repartidor', 'codigoLicencia', 'nombreManualInput',
         'nombreManual', 'visitor', 'scannedAt', 'captureGeneration'];
 
@@ -84,7 +86,7 @@ class VehicleVisit extends Component
             abort_unless(preg_match('/\Auploads\.\d+\.(licencia|placa|visitante)\z/', $name), 403);
             return;
         }
-        abort_unless(in_array($name, self::INPUTS, true), 403);
+        abort_unless(in_array($name, array_merge(self::INPUTS, self::TRANSIENT_INPUTS), true), 403);
         if ($this->status !== 'editing') {
             throw ValidationException::withMessages(['registro' => 'Verifique el envío pendiente antes de modificar los datos.']);
         }
@@ -275,6 +277,7 @@ class VehicleVisit extends Component
     public function recover()
     {
         $this->assertOwner();
+        $this->residentSearch = '';
         $this->resetValidation();
         if ($this->finishExisting()) return;
         $draft = $this->drafts()->read($this->ownerId, $this->submissionId);
@@ -294,6 +297,7 @@ class VehicleVisit extends Component
     public function restoreDraft(array $backup)
     {
         $this->assertOwner();
+        $this->residentSearch = '';
         abort_unless((string) ($backup['user_id'] ?? '') === (string) $this->ownerId, 403);
         $old = ($backup['version'] ?? null) === 1;
         $proof = null;
@@ -379,7 +383,7 @@ class VehicleVisit extends Component
             return $this->visitor[$field] ?? '';
         }, ['Primer_Nombre', 'Segundo_Nombre', 'Primer_Apellido', 'Segundo_Apellido']);
         return view('livewire.vehicle-visit', [
-            'config' => config::find(1), 'residents' => Resident::where('estado', '1')->get(['id', 'accesotel']),
+            'config' => config::find(1), 'residents' => $this->residentOptions(),
             'visitorNames' => $names,
             'initials' => mb_strtoupper(mb_substr($names[0], 0, 1).($this->nombreManual === '' ? mb_substr($names[2], 0, 1) : '')),
         ]);
@@ -428,10 +432,48 @@ class VehicleVisit extends Component
         $this->address = '';
         $this->resetValidation('residente');
         if (!$this->residente) return;
+        if (!is_scalar($this->residente) || !ctype_digit((string) $this->residente)) {
+            $this->addError('residente', 'Seleccione una casa activa.');
+            return;
+        }
         $resident = Resident::where('estado', '1')->find($this->residente);
         if (!$resident) { $this->addError('residente', 'Seleccione una casa activa.'); return; }
         $this->houseCode = $resident->Codigo ?? '';
         $this->address = $resident->Direccion ?? '';
+    }
+
+    protected function residentOptions()
+    {
+        $columns = ['id', 'Codigo', 'accesotel', 'Nombres', 'Nombres2', 'Apellidos', 'Apellidos2', 'Direccion'];
+        $search = trim(is_string($this->residentSearch) ? $this->residentSearch : '');
+        $query = Resident::where('estado', '1');
+
+        if ($search !== '') {
+            $terms = preg_split('/\s+/u', $search, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            foreach ($terms as $term) {
+                $term = addcslashes($term, '\\%_');
+                $query->where(function ($matches) use ($term) {
+                    foreach (['accesotel', 'Codigo', 'Nombres', 'Nombres2', 'Apellidos', 'Apellidos2'] as $column) {
+                        $matches->orWhere($column, 'like', '%'.$term.'%');
+                    }
+                });
+            }
+        }
+
+        $residents = $query->orderBy('Codigo')->orderBy('id')->limit(20)->get($columns);
+        $selectedId = is_scalar($this->residente) && ctype_digit((string) $this->residente)
+            ? $this->residente
+            : null;
+        $selected = $selectedId
+            ? Resident::where('estado', '1')->whereKey($selectedId)->first($columns)
+            : null;
+
+        if ($selected && !$residents->contains('id', $selected->id)) {
+            if ($residents->count() >= 20) $residents->pop();
+            $residents->prepend($selected);
+        }
+
+        return $residents;
     }
 
     protected function payload(array $photos): array

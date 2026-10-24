@@ -42,13 +42,12 @@ async function fakeCamera(){
         await page.goto(base+'/login');
         await page.fill('[name=username]','admin');await page.fill('[name=password]','visits-test-only');
         await Promise.all([page.waitForURL(url=>!url.pathname.includes('login')),page.click('button[type=submit]')]);
-        async function modalReady(){
-            await page.waitForFunction(()=>{const modal=window.jQuery('#modalimg').data('bs.modal');return modal&&!modal._isTransitioning;});
-        }
+        async function modalReady(){ await page.locator('#modalimg').waitFor({state:'visible'}); }
         async function prepare(plate,manual,photos=[1,1,1],delivery=false){
             await control(photos);
             await page.goto(base+'/visit/create',{waitUntil:'domcontentloaded'});
             const script=await page.locator('script[src*="vehicle-visit.js"]').getAttribute('src');assert.match(script,/\?v=\d+/);
+            const cameraScript=await page.locator('script[src*="vehicle-visit-camera.js"]').getAttribute('src');assert.match(cameraScript,/\?v=\d+/);
             await page.fill('#placa',plate);await page.fill('#cono','17');
             await page.selectOption('#selectResidente','1');
             if (delivery) await page.click('.switch label');

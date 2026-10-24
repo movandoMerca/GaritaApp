@@ -24,17 +24,17 @@ if (!output) throw new Error('Set VISITS_SCREENSHOT_DIR to an artifact directory
         await page.fill('[name=username]','admin');await page.fill('[name=password]','visits-test-only');
         await Promise.all([page.waitForURL(url=>!url.pathname.includes('/login')),page.click('button[type=submit]')]);
         await page.goto(base+'/visit/create');
-        await page.waitForFunction(()=>!!window.jQuery?.('#selectResidente').data('select2'));
+        await page.locator('#residentSearch').waitFor({state:'visible'});
         async function shot(name) {
             await page.locator('#responset').evaluate(el=>{el.hidden=true;});
             await page.evaluate(()=>document.activeElement?.blur());
             await page.screenshot({path:path.join(output,(process.env.VISITS_VISUAL_PHASE || 'after')+'-'+name+'.png'),fullPage:true,animations:'disabled'});
         }
         await shot('desktop-empty');
-        await page.locator('#select2-selectResidente-container').click();
-        await page.locator('.select2-search__field').fill('C202');
+        await page.locator('#residentSearch').fill('C202');
+        await page.waitForFunction(()=>Array.from(document.querySelector('#selectResidente').options).some(option=>option.textContent.includes('C202')));
         await shot('desktop-search');
-        await page.getByRole('option',{name:'C202',exact:true}).click();
+        await page.selectOption('#selectResidente','2');
         await page.waitForFunction(()=>document.querySelector('#direccion').value==='Casa B-34');
         await page.fill('#placa','P123ABC');await page.fill('#cono','17');
         await page.fill('#data',['12345678','C','JUAN','','PEREZ','','01/01/1990','01/01/2030','1234567890101','12345678',''].join('|'));

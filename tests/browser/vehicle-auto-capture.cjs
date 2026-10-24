@@ -41,9 +41,7 @@ const code = ['12345678','C','JUAN','','PEREZ','','01/01/1990','01/01/2030','123
             await page.fill('#data','INVALID CODE');await page.press('#data','Enter');
             await page.locator('#modalimg').waitFor({state:'visible'});
             assert.deepEqual(await page.evaluate(()=>photoCaptures),[]);
-            await page.waitForFunction(()=>!window.jQuery('#modalimg').data('bs.modal')._isTransitioning);
-            await page.locator('#modalimg').getByRole('button',{name:'Cancelar',exact:true}).click();await page.locator('#modalimg').waitFor({state:'hidden'});
-            await page.waitForFunction(()=>!window.jQuery('#modalimg').data('bs.modal')._isTransitioning&&!document.querySelector('.modal-backdrop'));
+            await page.keyboard.press('Escape');await page.locator('#modalimg').waitFor({state:'hidden'});
             await page.fill('#data',code);await page.press('#data','Enter');
             assert.deepEqual(await page.evaluate(()=>photoCaptures),[]);
             // Replace a scan while camera initialization is pending. The pending

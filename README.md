@@ -164,17 +164,22 @@ visita y bitácora en una transacción y reconcilia los reintentos por UUID.
 `/visit/save` conserva su contrato para formularios anteriores y utiliza ese
 mismo servicio. Detalles, egresos, reportes y registro peatonal mantienen sus rutas.
 
-El selector conserva Select2 y su buscador. Al leer una licencia válida se
-capturan automáticamente las fotografías habilitadas, esperando hasta diez
-segundos si las cámaras todavía están iniciando. **Tomar foto** permite repetir
-la captura. Un código inválido o el ingreso manual no dispara esta captura
-automática; en el ingreso manual se conserva la exclusión de la foto de licencia.
-La captura no registra la visita: el operador todavía pulsa **Guardar**.
+El selector nativo de Livewire busca por acceso telefónico, código de casa o
+nombre; conserva hasta 20 resultados y mantiene visible la selección actual.
+Al leer una licencia válida se capturan automáticamente las fotografías
+habilitadas, esperando hasta diez segundos si las cámaras todavía están
+iniciando. **Tomar foto** permite repetir la captura. Un código inválido o el
+ingreso manual no dispara esta captura automática; en el ingreso manual se
+conserva la exclusión de la foto de licencia. La captura no registra la visita:
+el operador todavía pulsa **Guardar**.
 
 Las fotografías permanecen en el navegador hasta enviarse como argumentos de la
-acción, sin incorporarse al estado serializado de Livewire. El borrador conserva
-el formato anterior y los envíos pendientes. El transporte acotado al componente
-mantiene los límites de 10/60 segundos y la renovación CSRF de un solo intento.
+acción, sin incorporarse al estado serializado de Livewire. El ingreso manual,
+sus validaciones y el guardado usan acciones y enlaces Livewire; solo la cámara,
+el respaldo local y la recuperación de la conexión conservan adaptadores JavaScript.
+El borrador conserva el formato anterior y los envíos pendientes. El transporte
+acotado al componente mantiene los límites de 10/60 segundos y la renovación
+CSRF de un solo intento.
 
 Al actualizar una instalación existente, ejecutar `composer install` desde el
 lock y `php artisan package:discover`. Si Docker ya tiene un volumen `vendor`,
@@ -315,18 +320,19 @@ node tests/browser/vehicle-shared-camera.cjs
 
 ### Datos de la casa al elegir acceso telefónico
 
-El formulario escucha el cambio de Select2 y actualiza No. Casa y Dirección.
-Descarta respuestas de una selección anterior y muestra un error recuperable
-si no puede consultar la casa. Con la instancia aislada preparada, ejecutar:
+El buscador y el selector HTML envían cambios a Livewire, que actualiza No. Casa
+y Dirección. Los cambios de búsqueda mantienen visible el residente elegido y
+el respaldo local restaura su selección. Con la instancia aislada preparada,
+ejecutar:
 
 ```bash
 node tests/browser/vehicle-resident-selection.cjs
 ```
 
-La regresión pulsa el selector real en Edge y Chrome, cambia de casa, recupera
-el borrador, simula respuestas fuera de orden y errores, conserva ediciones
-realizadas durante una consulta y guarda con el residente elegido mediante
-Livewire. También comprueba que un render conserve el UUID del borrador.
+La regresión busca por acceso, código y nombre en Edge y Chrome, selecciona y
+limpia el selector, recupera el borrador, simula respuestas lentas y fallidas,
+conserva ediciones durante una consulta y guarda con el residente elegido
+mediante Livewire. También comprueba que un render conserve el UUID del borrador.
 
 Para comprobar que un escaneo inválido no tome fotos, que un ingreso manual
 cancele una captura pendiente y que el botón permita repetir las fotos automáticas:

@@ -307,9 +307,9 @@ async function waitForDpiRead(page) {
         await page.fill('#cono', '18');
         await page.selectOption('#selectResidente', '1');
         await page.click('#abrirIngresoManual');
-        assert.equal(await page.locator('#modalimg').isVisible(), true);
-        await page.click('#modalimg [data-dismiss="modal"]');
-        await page.waitForFunction(() => !document.querySelector('#modalimg').classList.contains('show'));
+        await page.locator('#modalimg').waitFor({state:'visible'});
+        await page.locator('#modalimg').getByRole('button', {name:'Cancelar'}).click();
+        await page.locator('#modalimg').waitFor({state:'hidden'});
         await page.click('#abrirIngresoManual');
         await page.click('#guardarManual');
         await page.getByText('Ingrese el nombre del visitante para continuar.').waitFor();

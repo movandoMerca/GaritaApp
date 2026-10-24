@@ -6,7 +6,7 @@ Producción usa Laravel/PHP-FPM/Nginx en CloudPanel. Docker se usa únicamente p
 
 1. Respaldar la base de datos, el código actualmente publicado, `.env` y las configuraciones del sitio. Mantener las fotografías existentes; no cambiar `IMAGE_STORAGE_DRIVER`, el bucket ni `GARITA_FOLDER`.
 2. Usar el usuario SSH del sitio y su versión de PHP. Verificar `php -v`, `php --ini`, las extensiones `pdo_mysql`, `mbstring` y `gd`, y `composer check-platform-reqs --no-dev`. El PHP de consola debe corresponder al PHP-FPM seleccionado en CloudPanel.
-3. Preparar la nueva versión con las dependencias de `composer.lock`. No requiere recompilar los assets: `public/js/vehicle-visit.js` es el archivo servido y la vista añade su versión automáticamente.
+3. Preparar la nueva versión con las dependencias de `composer.lock`. No requiere recompilar los assets: `public/js/vehicle-visit.js` y `public/js/vehicle-visit-camera.js` se sirven directamente y la vista añade sus versiones automáticamente.
 4. Consultar `php artisan migrate:status`. Debe aplicarse `2026_10_16_000001_add_submission_id_to_visits`, junto con las demás migraciones pendientes, antes de volver a admitir registros.
 
 No usar `import:data`, `migrate:fresh`, `migrate:refresh` ni el esquema SQL de pruebas en producción: recrean tablas.
@@ -60,7 +60,7 @@ SHOW INDEX FROM visitas WHERE Key_name = 'visitas_submission_id_unique';
 
 La columna debe ser nullable y el índice único (`Non_unique = 0`). Las visitas antiguas conservan sus datos y pueden tener UUID nulo. Si es necesario volver al código anterior, conservar esta columna compatible; no ejecutar rollback de las migraciones que conservan los datos del despliegue.
 
-Recargar PHP-FPM para retirar el código antiguo de OPcache. En el navegador verificar que la vista carga `vehicle-visit.js?v=...` y que el archivo corresponde a la versión publicada. Evitar caché pública de páginas autenticadas y de `/visit/session`; la respuesta de sesión debe conservar `private`, `no-store` y `max-age=0`.
+Recargar PHP-FPM para retirar el código antiguo de OPcache. En el navegador verificar que la vista carga `vehicle-visit.js?v=...` y `vehicle-visit-camera.js?v=...`, y que ambos archivos corresponden a la versión publicada. Evitar caché pública de páginas autenticadas y de `/visit/session`; la respuesta de sesión debe conservar `private`, `no-store` y `max-age=0`.
 
 ## Comprobación posterior
 
